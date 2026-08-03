@@ -16,7 +16,7 @@ v2 → v3 吸收项（按 v3 设计方案）：
 
 死规矩 1：升级走版本管理——改前 `guard.sh snapshot` 冻结 / 改后 `--self` + 自举回归不降分 / README 记版本号。
 """
-__version__ = "3.0.3"
+__version__ = "3.0.4"
 """
 v2 原始头注释（v3 重写头注释后保留作为历史记录）：
 单一解释框架（2026-08-03 用户要求：结合 V1 + 六原则 + 金字塔 + 机制层整体重构，
@@ -567,7 +567,9 @@ def ev_p8(content):
         f"description 关键词 {len(desc_words)} 个在正文复现" + ("" if default else " ❌塔尖脱节"),
         f"description: {desc[:60]}...；正文复现词: {desc_words[:5]}")
     # 8b 触发边界（机器，V1 触发条件归位）
-    has_b = check_pattern(content[:2000], it["trigger_boundary"]["patterns"])
+    # v3.0.4 修复（模块 D 元层信任，golden g38 暴露）：check_pattern 返回 (bool, pattern) 元组，
+    # 此前直接赋给 has_b 导致元组恒 truthy——trigger_boundary 永不 False（假阳性：无边界也被判有）
+    has_b = check_pattern(content[:2000], it["trigger_boundary"]["patterns"])[0]
     res["trigger_boundary"] = machine_item(it["trigger_boundary"]["weight"], has_b,
         "✅有触发边界（NOT for/不触发）" if has_b else "❌无触发边界——不该触发的场景没排除，会误触发")
     return res

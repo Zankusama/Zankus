@@ -17,6 +17,8 @@ import skill_eval
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "golden")
 
 # 每个样本的期望判定：{(principle, item): 期望 passed}
+# v1.2.0-D（2026-08-03 元层信任）：g14-g46 新增 33 样本，10 原理全覆盖（每原理 ≥3，正例/反例）
+# 所有 EXPECT 均先跑评估器验证实际判定后写入（死规矩：先验证后写期望）
 EXPECT = {
     "g01_scriptized_ok":    {("p1_determinism", "scriptized"): True},
     "g02_scriptized_fake":  {("p1_determinism", "scriptized"): False},
@@ -31,6 +33,49 @@ EXPECT = {
     "g11_placeholder_ban":  {("p9_failure_modes", "fuzzy_placeholder"): True},
     "g12_placeholder_real": {("p9_failure_modes", "fuzzy_placeholder"): False},
     "g13_emoji_template":  {("p9_failure_modes", "repeat_pattern"): True},
+    # ── p2 锚定（新增 3 样本）──
+    "g14_anchor_repeat_ok":    {("p2_anchoring", "key_constraint_repeated"): True},
+    "g15_anchor_repeat_fail":  {("p2_anchoring", "key_constraint_repeated"): False},
+    "g16_anchor_repeat_multi": {("p2_anchoring", "key_constraint_repeated"): True},
+    # ── p3 反幻觉（新增 6 样本）──
+    "g17_source_ok":           {("p3_anti_hallucination", "source_required"): True},
+    "g18_source_fail":         {("p3_anti_hallucination", "source_required"): False},
+    "g19_unverified_ok":       {("p3_anti_hallucination", "unverified_marked"): True},
+    "g20_unverified_fail":     {("p3_anti_hallucination", "unverified_marked"): False},
+    "g21_alternatives_ok":     {("p3_anti_hallucination", "alternatives_considered"): True},
+    "g22_alternatives_fail":   {("p3_anti_hallucination", "alternatives_considered"): False},
+    # ── p5 权重（新增 6 样本）──
+    "g23_grading_ok":          {("p5_weighting", "rule_grading"): True},
+    "g24_grading_fail":        {("p5_weighting", "rule_grading"): False},
+    "g25_binary_ok":           {("p5_weighting", "no_binary_residual"): True},
+    "g26_binary_fail":         {("p5_weighting", "no_binary_residual"): False},
+    "g27_arbitration_ok":      {("p5_weighting", "conflict_arbitration"): True},
+    "g28_arbitration_fail":    {("p5_weighting", "conflict_arbitration"): False},
+    # ── p6 物化（新增 3 样本）──
+    "g29_progress_ok":         {("p6_materialization", "progress_mechanism"): True},
+    "g30_progress_fail":       {("p6_materialization", "progress_mechanism"): False},
+    "g31_progress_multi":      {("p6_materialization", "progress_mechanism"): True},
+    # ── p7 外置（新增 3 样本）──
+    "g32_extrusion_ok":        {("p7_extrusion", "references_extruded"): True},
+    "g33_extrusion_fail":      {("p7_extrusion", "references_extruded"): False},
+    "g34_extrusion_multi":     {("p7_extrusion", "references_extruded"): True},
+    # ── p8 塔尖（新增 4 样本）──
+    "g35_desc_ok":             {("p8_apex", "desc_consistent"): True},
+    "g36_desc_fail":           {("p8_apex", "desc_consistent"): False},
+    "g37_boundary_ok":         {("p8_apex", "trigger_boundary"): True},
+    "g38_boundary_fail":       {("p8_apex", "trigger_boundary"): False},
+    # ── p1 确定性补多样本（新增 2）──
+    "g39_judge_ok":            {("p1_determinism", "judgeable_acceptance"): True},
+    "g40_judge_fail":          {("p1_determinism", "judgeable_acceptance"): False},
+    # ── p4 分步补多样本（新增 2）──
+    "g41_accept_ok":           {("p4_progressive", "step_acceptance"): True},
+    "g42_accept_fail":         {("p4_progressive", "step_acceptance"): False},
+    # ── p10 五要素补多样本（新增 2）──
+    "g43_output_ok":           {("p10_five_elements", "output_format"): True},
+    "g44_output_fail":         {("p10_five_elements", "output_format"): False},
+    # ── p9 失败模式补多样本（新增 2）──
+    "g45_fence_ok":            {("p9_failure_modes", "fence_escape"): True},
+    "g46_fence_fail":          {("p9_failure_modes", "fence_escape"): False},
 }
 
 
