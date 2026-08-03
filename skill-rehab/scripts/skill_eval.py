@@ -16,7 +16,7 @@ v2 → v3 吸收项（按 v3 设计方案）：
 
 死规矩 1：升级走版本管理——改前 `guard.sh snapshot` 冻结 / 改后 `--self` + 自举回归不降分 / README 记版本号。
 """
-__version__ = "3.0.1"
+__version__ = "3.0.3"
 """
 v2 原始头注释（v3 重写头注释后保留作为历史记录）：
 单一解释框架（2026-08-03 用户要求：结合 V1 + 六原则 + 金字塔 + 机制层整体重构，
@@ -256,7 +256,7 @@ PRINCIPLES = {
             "passive_defer": {  # 2 机器（v3 重分）
                 "layer": "machine", "weight": 2,
                 "title": "被动推迟（关键动作有「必须/默认/先」主动指令，不只靠被动条件）",
-                "passive_patterns": [r"当.*时", r"如有需要", r"如果需要", r"可以[。 ]", r"或者你", r"看你"],
+                "passive_patterns": [r"等\s*[^。\n]{0,10}\s*(?:再|才|处理|看|做)", r"(?:以后|稍后|有空|到时候|有时间)\s*(?:再|补|看|做)", r"需要时\s*(?:再|才)", r"必要时\s*(?:再|才)", r"看情况\s*(?:再|才)"],
                 "max_passive": 5,  # 被动词 ≤ 5 处
             },
             "repeat_pattern": {  # 2 机器（v3 重分）
@@ -272,7 +272,7 @@ PRINCIPLES = {
             "fuzzy_placeholder": {  # 2 机器（v3 重分）
                 "layer": "machine", "weight": 2,
                 "title": "模糊占位符（xxx/TBD/待补充/TODO 0 命中——占位符必填实）",
-                "patterns": [r"\bxxx\b", r"\bTBD\b", r"待补充", r"\bTODO\b", r"占位符\b"],
+                "patterns": [r"\bxxx\b", r"\bTBD\b", r"待补充", r"\bTODO\b", r"占位符(?:必填|待填|未替换)"],
                 "max_placeholder": 0,
             },
         },
@@ -327,13 +327,60 @@ def parse_yaml_frontmatter(content):
     fm = {}
     m = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
     if m:
-        for line in m.group(1).split('\n'):
+        lines = m.group(1).split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i]
             if ':' in line:
                 k, _, v = line.partition(':')
                 k, v = k.strip(), v.strip().strip('"').strip("'")
+                # YAML 折叠块（> / | / >- / |-）：收集后续缩进行（v3.0.2 修：折叠 description 不再漏解析）
+                if k and v.startswith(('>', '|')):
+                    block = []
+                    j = i + 1
+                    while j < len(lines) and lines[j].startswith((' ', '\t')):
+                        block.append(lines[j].strip())
+                        j += 1
+                    fm[k] = (' '.join(block) if v.startswith('>') else '\n'.join(block)).strip()
+                    i = j
+                    continue
                 if k and v:
                     fm[k] = v
+            i += 1
     return fm
+
+def find_longest_step_seq(content):
+    """找从 1 开始的最长连续步骤编号（v3.0.2 修：兼容 **1. / 1. / ### 1. / 1、/ 一、 行首编号 + 阶段N + Step N）"""
+    cn = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+    nums = []
+    # 行首编号（**1. / 1. / ### 1. / 1、/ 一、）+ 阶段标题（### 阶段N）+ Step 标题（#### Step N）——限定行首标题，防正文引用污染序列
+    pat = re.compile(
+        r'(?:^\s*(?:\*\*\s*|#{1,6}\s*)?(\d{1,2}|[一二三四五六七八九十])[\.、\)）\s:：])'
+        r'|(?:^#{1,6}\s*阶段\s*(\d{1,2}))'
+        r'|(?:^#{1,6}\s*Step\s*(\d{1,2}))',
+        re.MULTILINE)
+    for mt in pat.finditer(content):
+        tok = mt.group(1) or mt.group(2) or mt.group(3)
+        if tok:
+            nums.append(int(tok) if tok.isdigit() else cn.get(tok, 0))
+    best = cur = 0
+    expect = 1
+    for n in nums:
+        if n == expect:
+            cur += 1
+            expect += 1
+        elif n == 1:
+            cur = 1
+            expect = 2
+        elif n == 0 and cur == 0:
+            # 阶段0/Step 0 开头序列（0,1,2,3…）——把 0 当起点计数
+            cur = 1
+            expect = 1
+        else:
+            cur = 0
+            expect = 1
+        best = max(best, cur)
+    return best
 
 def count_keyword(content, keywords):
     return sum(content.count(k) for k in keywords)
@@ -367,13 +414,19 @@ def review_item(weight, default_passed, detail, evidence):
 def ev_p1(content, skill_dir):
     res = {}
     it = PRINCIPLES["p1_determinism"]["items"]
-    # 1a 脚本化
-    script_cnt = count_keyword(content, it["scriptized"]["keywords"])
-    has_dir = skill_dir and os.path.isdir(os.path.join(skill_dir, "scripts"))
-    passed = has_dir or script_cnt >= it["scriptized"]["min"]
+    # 1a 脚本化（v3.0.3 强化：引用脚本必须真实存在 + 有脚本化声明节——防「SKILL.md 提一句脚本名」作弊）
+    scripts_dir = os.path.join(skill_dir, "scripts") if skill_dir else None
+    has_dir = bool(scripts_dir) and os.path.isdir(scripts_dir)
+    ref_scripts = set(re.findall(r'scripts/([A-Za-z0-9_\-\.]+\.(?:py|sh))', content))
+    real_scripts = set()
+    if has_dir:
+        real_scripts = {f for f in os.listdir(scripts_dir) if os.path.isfile(os.path.join(scripts_dir, f))}
+    refs_real = bool(ref_scripts) and ref_scripts <= real_scripts
+    has_decl = bool(re.search(r'可机器化验收|脚本化清单|脚本化声明', content))
+    passed = has_dir and refs_real and has_decl and len(real_scripts) >= 1
     res["scriptized"] = machine_item(it["scriptized"]["weight"], passed,
-        f"scripts/ 目录{'✅' if has_dir else '❌'} 脚本引用 {script_cnt} 处" if passed
-        else "❌可机器化约束没脚本化——概率判断→脚本执行是质量从「大概率对」变「必然对」的唯一手段")
+        f"scripts/ 目录{'✅' if has_dir else '❌'} 引用脚本真实{'✅' if refs_real else '❌'} 脚本化声明{'✅' if has_decl else '❌'}" if passed
+        else "❌可机器化约束没脚本化（需：scripts/ 目录 + SKILL.md 引用脚本真实存在 + 可机器化验收声明节）——概率判断→脚本执行是质量从「大概率对」变「必然对」的唯一手段")
     # 1b 验收可执行
     judge_cnt = count_keyword(content, it["judgeable_acceptance"]["keywords"])
     passed = judge_cnt >= it["judgeable_acceptance"]["min"]
@@ -423,12 +476,12 @@ def ev_p3(content):
 def ev_p4(content):
     res = {}
     it = PRINCIPLES["p4_progressive"]["items"]
-    # 4a 流程分步（机器）
-    steps = [int(m) for m in re.findall(r'^\*\*(\d+) ', content, re.MULTILINE)]
-    seq_ok = steps == list(range(1, len(steps) + 1)) and len(steps) >= it["step_flow"]["min_steps"]
+    # 4a 流程分步（机器）——兼容 **1. / 1. / ### 1. / 一、 等格式，取最长连续编号
+    steps_n = find_longest_step_seq(content)
+    seq_ok = steps_n >= it["step_flow"]["min_steps"]
     res["step_flow"] = machine_item(it["step_flow"]["weight"], seq_ok,
-        f"流程 {len(steps)} 步编号连续" if seq_ok
-        else f"❌流程步骤 {steps}（需≥{it['step_flow']['min_steps']} 且连续）——不分步=一步到位，长上下文单步质量必降")
+        f"流程 {steps_n} 步编号连续（≥{it['step_flow']['min_steps']}）" if seq_ok
+        else f"❌流程步骤 最长连续{steps_n} 步（需≥{it['step_flow']['min_steps']}）——不分步=一步到位，长上下文单步质量必降")
     # 4b 每步产出物（机器）
     acc = count_keyword(content, it["step_acceptance"]["keywords"])
     passed = acc >= it["step_acceptance"]["min"]
@@ -546,13 +599,19 @@ def ev_p9(content):
     for f in fences:
         for line in f.split('\n'):
             line = line.strip()
-            if line and not line.startswith('#') and not line.startswith('$'):
-                norm = re.sub(r'\s+', ' ', line)
-                if norm in cmds:
-                    repeats += 1
-                else:
-                    cmds.add(norm)
-    repeat_ok = repeats <= it["repeat_pattern"]["max_repeat"]
+            if not line or line.startswith('#') or line.startswith('$'):
+                continue
+            # v3.0.2 补修 + v3.0.3 扩展：排除非命令内容——表格行（|）、ASCII 树形（│）、引用/模板（>）、emoji 标记（🧠📦✅ 等）、纯符号行（---）
+            if line.startswith(('|', '│', '>', '🧠', '📦', '✅', '⚠️', '🔍', '⛔', '❌', '🎯')):
+                continue
+            if not re.search(r'[\w\u4e00-\u9fff]', line):
+                continue
+            norm = re.sub(r'\s+', ' ', line)
+            if norm in cmds:
+                repeats += 1
+            else:
+                cmds.add(norm)
+    repeat_ok = repeats < it["repeat_pattern"]["max_repeat"]  # v3.0.3：off-by-one 修（同一命令出现 ≥max+2 次才挂）
     res["repeat_pattern"] = machine_item(it["repeat_pattern"]["weight"], repeat_ok,
         f"重复命令 {repeats} 处（≤{it['repeat_pattern']['max_repeat']}）" if repeat_ok
         else f"❌重复命令 {repeats} 处（>{it['repeat_pattern']['max_repeat']}）——重复逻辑应收敛为单脚本")
@@ -572,7 +631,7 @@ def ev_p9(content):
         else f"❌模糊占位符 {fuzzy_cnt} 处（>{it['fuzzy_placeholder']['max_placeholder']}）——占位符必填实")
     return res
 
-def ev_p10(content):
+def ev_p10(content, skill_dir):
     """⑩五要素齐全性（10）· skill 骨架五件套机器层硬查"""
     res = {}
     it = PRINCIPLES["p10_five_elements"]["items"]
@@ -580,16 +639,16 @@ def ev_p10(content):
     desc = fm.get("description", "")
     body = content.replace(desc, "")
     # 10a trigger：description 含触发词 + NOT for
-    trigger_ok = bool(desc) and re.search(r'(修|打|修.*skill|康复|体检|诊断|打磨|trigger|触发)', desc, re.IGNORECASE) and re.search(r'NOT for|不触发|不应触发', desc + body[:500], re.IGNORECASE)
+    trigger_ok = bool(desc) and bool(re.search(r'(修|打|修.*skill|康复|体检|诊断|打磨|trigger|触发)', desc, re.IGNORECASE)) and bool(re.search(r'NOT for|不触发|不应触发', desc + body[:500], re.IGNORECASE))
     res["trigger"] = machine_item(it["trigger"]["weight"], trigger_ok,
         "✅触发条件齐（description 含触发词 + NOT for）" if trigger_ok
         else "❌触发条件缺——description 无触发词或无 NOT for 边界")
-    # 10b steps：流程分步 ≥3 连续编号
-    step_pattern = re.findall(r'\*\*\s*[1-9一二三四五六七八九十][\.、\)）\s]', body)
-    steps_ok = len(step_pattern) >= it["steps"]["min_steps"]
+    # 10b steps：流程分步 ≥3 连续编号（兼容多格式，v3.0.2 修）
+    steps_n = find_longest_step_seq(body)
+    steps_ok = steps_n >= it["steps"]["min_steps"]
     res["steps"] = machine_item(it["steps"]["weight"], steps_ok,
-        f"流程分步 {len(step_pattern)} 处（≥{it['steps']['min_steps']}）" if steps_ok
-        else f"❌流程分步 {len(step_pattern)} 处（<{it['steps']['min_steps']}）")
+        f"流程分步 {steps_n} 处连续（≥{it['steps']['min_steps']}）" if steps_ok
+        else f"❌流程分步 最长连续{steps_n} 处（<{it['steps']['min_steps']}）")
     # 10c output_format：产出物/输出/格式 关键词 ≥2
     out_cnt = count_keyword(body, it["output_format"]["keywords"])
     out_ok = out_cnt >= it["output_format"]["min"]
@@ -600,11 +659,15 @@ def ev_p10(content):
     boundary_ok = check_pattern(content, it["boundary"]["patterns"])[0]
     res["boundary"] = machine_item(it["boundary"]["weight"], boundary_ok,
         "✅边界声明存在" if boundary_ok else "❌无边界声明（接什么/不接什么不清）")
-    # 10e test_case：验收/grep/diff/测试 关键词 ≥2
+    # 10e test_case：验收/grep/diff/测试 关键词 ≥2，或 tests/ 目录存在（v3.0.2 修）
     test_cnt = count_keyword(body, it["test_case"]["keywords"])
-    test_ok = test_cnt >= it["test_case"]["min"]
+    has_tests = False
+    if skill_dir:
+        tdir = os.path.join(skill_dir, 'tests')
+        has_tests = os.path.isdir(tdir) and any(os.path.isfile(os.path.join(tdir, f)) for f in os.listdir(tdir))
+    test_ok = test_cnt >= it["test_case"]["min"] or has_tests
     res["test_case"] = machine_item(it["test_case"]["weight"], test_ok,
-        f"测试用例词 {test_cnt} 处（≥{it['test_case']['min']}）" if test_ok
+        f"测试用例词 {test_cnt} 处（≥{it['test_case']['min']}）{' + tests/ 目录' if has_tests else ''}" if test_ok
         else f"❌测试用例词 {test_cnt} 处（<{it['test_case']['min']}）")
     return res
 
@@ -637,7 +700,7 @@ def evaluate_skill(skill_name, skill_path):
     result["principles"]["p7_extrusion"] = ev_p7(content)
     result["principles"]["p8_apex"] = ev_p8(content)
     result["principles"]["p9_failure_modes"] = ev_p9(content)  # v3
-    result["principles"]["p10_five_elements"] = ev_p10(content)  # v3
+    result["principles"]["p10_five_elements"] = ev_p10(content, skill_dir)  # v3.0.2
 
     # 汇总：机器层 + 评审层（默认判定计入，报告标注需复核）
     for ln, layer in result["principles"].items():
@@ -676,6 +739,7 @@ def generate_report(results):
 > **评估标准**: 8 机制原理（①确定性20 ②锚定12 ③反幻觉15 ④分步13 ⑤权重15 ⑥物化10 ⑦外置5 ⑧塔尖10）
 > **V1 归位**: 五级标注→权重工程 / Poka-Yoke→确定性转移 / 熔断器→分步推进 / Alternatives→锚点抑制 / 触发条件→塔尖对齐（V1 不再独立成层）
 > **双层评估**: 机器层硬判（可正则判）+ 评审层（🟡 需人工/子 Agent 按证据复核）
+> **⚠️ 边界声明（v3.0.3）**: 本报告是「必要条件闸门」判定（有无类检查），未过项=已知硬伤；**未过项 ≠ 全部问题**——「完整性缺口」（该有但没列全/没做全）由康复流程的类别完整性清单（references/completeness.md）兜底，**评估器满分 ≠ skill 全好**
 
 ---
 

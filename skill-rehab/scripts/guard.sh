@@ -57,7 +57,12 @@ case "$cmd" in
       python3 "$EVAL" --self 2>&1 | tail -10 >&2
       exit 1
     fi
-    echo "✓ check：--self 全过"
+    if ! python3 "${SCRIPT_DIR}/run_goldens.py" >/dev/null 2>&1; then
+      echo "✗ check FAIL：goldens 回归测试集没全过（评估器盲区/越改越瞎）" >&2
+      python3 "${SCRIPT_DIR}/run_goldens.py" 2>&1 | tail -15 >&2
+      exit 1
+    fi
+    echo "✓ check：--self + goldens 全过"
     ;;
   diff)
     if [ ! -f "$LATEST_FILE" ]; then
