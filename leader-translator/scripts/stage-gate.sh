@@ -9,6 +9,7 @@
 #   step=6  G6 写书后 写书后：    自动调 goal-lint + coverage-check + 回归目标；并输出「重点人工复核清单」
 # 退出码: 0 = 过；1 = 不过
 # 管理者每步跑一次，不过不许进下一步——防「定义跳过/问不全/写偏」全靠它挡。
+# v1.6.0+ 防跳步预检：跑 G(N) 时自动检查 G(N-1) 产物存在——跳过本闸门 = 自动 fail（不靠 AI 自觉）
 
 STEP="${1:-}"
 FILE="${2:-}"
@@ -23,6 +24,18 @@ fi
 
 fail() { echo "❌ [闸门 G$STEP] $1"; exit 1; }
 pass() { echo "✅ [闸门 G$STEP] $1"; }
+
+# === 防跳步预检（v1.6.0+）：G(N) 自动检查 G(N-1) 产物存在 ===
+# G1 无前置跳过；G2-G4 检查 gate-(N-1).txt；G5/G6 是人工/自动检查不预检
+if [ "$STEP" -ge 2 ] && [ "$STEP" -le 4 ]; then
+  PREV=$((STEP - 1))
+  PREV_FILE=".goal/gate-${PREV}.txt"
+  if [ -f "$PREV_FILE" ]; then
+    pass "防跳步预检：G${PREV} 产物 ${PREV_FILE} 存在"
+  else
+    fail "防跳步预检：缺 G${PREV} 产物 ${PREV_FILE}——回步骤 ${PREV} 跑 stage-gate.sh ${PREV} 生成后再来（G$STEP 不许在 G$PREV 没过的状态下跑）"
+  fi
+fi
 
 case "$STEP" in
   1)
