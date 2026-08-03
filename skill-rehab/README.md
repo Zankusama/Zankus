@@ -93,9 +93,9 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ### 内置评估器
 
-- 版本：`scripts/skill_eval.py`（`__version__ = "3.0.3"`）；10 原理 · 机器层 90 + 评审层 10 · 总分 100
+- 版本：`scripts/skill_eval.py`（`__version__ = "3.0.4"`）；10 原理 · 机器层 90 + 评审层 10 · 总分 100
 - 自检：`python3 scripts/skill_eval.py --self` 全过
-- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 14 样本）——评估器升级必过，防「越改越瞎」
+- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 46 样本）——评估器升级必过，防「越改越瞎」
 - 判卷完整性：`./scripts/guard.sh verify`（评估器 sha256 冻结核对）+ `./scripts/guard.sh check`（--self + goldens 全过）
 
 ### 评估器版本管理流程（v3 起）
