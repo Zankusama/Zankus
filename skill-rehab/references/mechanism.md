@@ -403,39 +403,39 @@
 
 ## 快速索引（未过项 → 分级 → 去哪修）
 
-| 未过项（诊断输出里的键） | 默认分级 | 对应层 | 表内位置 |
-|:---|:---:|:---|:---|
-| l1_name_naming | 期望型 | ① | ↑ |
-| l1_desc_mission | 基本型 | ① | ↑ |
-| l1_desc_consistency | 基本型 | ① | ↑ |
-| l1_single_responsibility | 期望型 | ① | ↑ |
-| l2_trigger_phrases | 基本型 | ② | ↑ |
-| l2_negative_trigger | 基本型 | ② | ↑ |
-| l2_cross_platform | 期望型 | ② | ↑ |
-| l2_trigger_testing | 期望型 | ② | ↑ |
-| l3_step_flow | 基本型 | ③ | ↑ |
-| l3_output_format | 基本型 | ③ | ↑ |
-| l3_progressive_disclosure | 期望型 | ③ | ↑ |
-| l3_material_template | 期望型 | ③ | ↑ |
-| l3_scriptized | 基本型 | ③ | ↑ |
-| l3_deterministic_guardrail | 期望型 | ③ | ↑ |
-| l4_judgeable_acceptance | 基本型 | ④ | ↑ |
-| l4_anchoring | 期望型 | ④ | ↑ |
-| l4_source_grounding | 基本型 | ④ | ↑ |
-| l4_unverified_marking | 期望型 | ④ | ↑ |
-| l4_alternatives | 期望型 | ④ | ↑ |
-| l4_instruction_consistency | 基本型 | ④ | ↑ |
-| l4_imperative_style | 基本型 | ④ | ↑ |
-| l4_placeholder_leakage | 基本型 | ④ | ↑ |
-| l4_output_executability | 期望型 | ④ | ↑ |
-| l4_fuse_mechanism | 期望型 | ④ | ↑ |
-| l4_state_materialization | 期望型 | ④ | ↑ |
-| l5_allowed_tools | 基本型 | ⑤ | ↑ |
-| l5_dangerous_op_guard | 基本型 | ⑤ | ↑ |
-| l5_reversibility_grading | 期望型 | ⑤ | ↑ |
-| l5_injection_guard | 期望型 | ⑤ | ↑ |
-| l6_versioning | 期望型 | ⑥ | ↑ |
-| l6_test_suite | 期望型 | ⑥ | ↑ |
-| l6_documentation | 兴奋型 | ⑥ | ↑ |
+| 未过项（诊断输出里的键） | 默认分级 | 对应层 | 对应 golden 样本（验收标准↔测试映射） | 表内位置 |
+|:---|:---:|:---|:---|:---|
+| l1_name_naming | 期望型 | ① | g01-g02 无直接样本（脚本化相关），命名正例待补 | ↑ |
+| l1_desc_mission | 基本型 | ① | g35(g36 反例) | ↑ |
+| l1_desc_consistency | 基本型 | ① | g35_desc_ok / g36_desc_fail | ↑ |
+| l1_single_responsibility | 期望型 | ① | 无样本（评审层，待补） | ↑ |
+| l2_trigger_phrases | 基本型 | ② | g07_trigger_folded / g08_trigger_none | ↑ |
+| l2_negative_trigger | 基本型 | ② | g37_boundary_ok / g38_boundary_fail | ↑ |
+| l2_cross_platform | 期望型 | ② | g53_platform_ok / g54_platform_fail | ↑ |
+| l2_trigger_testing | 期望型 | ② | g47-g54 无直接样本，tests/trigger-*.md 实测 | ↑ |
+| l3_step_flow | 基本型 | ③ | g03_steps_arabic / g04_steps_phase / g05_steps_step / g06_steps_none | ↑ |
+| l3_output_format | 基本型 | ③ | g43_output_ok / g44_output_fail | ↑ |
+| l3_progressive_disclosure | 期望型 | ③ | g32_extrusion_ok / g33_extrusion_fail / g34_extrusion_multi | ↑ |
+| l3_material_template | 期望型 | ③ | 无样本（待补） | ↑ |
+| l3_scriptized | 基本型 | ③ | g01_scriptized_ok / g02_scriptized_fake | ↑ |
+| l3_deterministic_guardrail | 期望型 | ③ | 无样本（评审层 hook，待补） | ↑ |
+| l4_judgeable_acceptance | 基本型 | ④ | g39_judge_ok / g40_judge_fail / g41_accept_ok / g42_accept_fail | ↑ |
+| l4_anchoring | 期望型 | ④ | g14_anchor_repeat_ok / g15_anchor_repeat_fail / g16_anchor_repeat_multi | ↑ |
+| l4_source_grounding | 基本型 | ④ | g17_source_ok / g18_source_fail | ↑ |
+| l4_unverified_marking | 期望型 | ④ | g19_unverified_ok / g20_unverified_fail | ↑ |
+| l4_alternatives | 期望型 | ④ | g21_alternatives_ok / g22_alternatives_fail | ↑ |
+| l4_instruction_consistency | 基本型 | ④ | g09/g10/g23-g28/g13（合并后判定） | ↑ |
+| l4_imperative_style | 基本型 | ④ | g51_imperative_ok / g52_imperative_fail | ↑ |
+| l4_placeholder_leakage | 基本型 | ④ | g11_placeholder_ban / g12_placeholder_real | ↑ |
+| l4_output_executability | 期望型 | ④ | g45_fence_ok / g46_fence_fail | ↑ |
+| l4_fuse_mechanism | 期望型 | ④ | 无样本（待补） | ↑ |
+| l4_state_materialization | 期望型 | ④ | g29_progress_ok / g30_progress_fail / g31_progress_multi | ↑ |
+| l5_allowed_tools | 基本型 | ⑤ | g47_allowed_ok / g48_allowed_fail | ↑ |
+| l5_dangerous_op_guard | 基本型 | ⑤ | g49_danger_ok / g50_danger_fail | ↑ |
+| l5_reversibility_grading | 期望型 | ⑤ | 无样本（待补） | ↑ |
+| l5_injection_guard | 期望型 | ⑤ | 无样本（评审层，待补） | ↑ |
+| l6_versioning | 期望型 | ⑥ | 无样本（待补） | ↑ |
+| l6_test_suite | 期望型 | ⑥ | g43-g46 相关（output/fence 兼测） | ↑ |
+| l6_documentation | 兴奋型 | ⑥ | 无样本（待补） | ↑ |
 > 分级说明：**P0 基本型** = 影响运行/触发/正确性/安全，必须修（死规矩 9「只修基本型」= 治疗对象）；**P1 期望型** = 提升质量，建议不强制；**P2 兴奋型** = 记录备选（Kano 迁移：会随时间变期望→基本）。
 > 特例：SKILL.md 行数 >500 时，l3_progressive_disclosure 从期望型升为基本型（必须拆）。
