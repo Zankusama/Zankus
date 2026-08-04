@@ -44,7 +44,7 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 > `<>` 为需替换参数（技能目录 / skill 名 / 报告目录），**不许照抄尖括号原样执行**。
 
-- 读输出：8 原理每项得分（①确定性 20 / ②锚定 12 / ③反幻觉 15 / ④分步 13 / ⑤权重 15 / ⑥物化 10 / ⑦外置 5 / ⑧塔尖 10）
+- 读输出：10 原理每项得分（①-⑩ 各 10 分，总分 100）
 - 读报告文件里的「⚠️ 未过项」与「评审层复核表」（🟡 需复核项按证据人工判定）
 
 **诊断双源（必要条件 + 充分性）**：
@@ -55,7 +55,7 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 **2 分级处方**
 
-**处方 = 两源合并**：评估器未过项 + 完整性缺口，全进分级清单，**不许「评估器没点名就跳过」**。逐条查 `references/mechanism.md`（8 原理 × 症状 × 分级 × 修法选项），产出分级清单：
+**处方 = 两源合并**：评估器未过项 + 完整性缺口，全进分级清单，**不许「评估器没点名就跳过」**。逐条查 `references/mechanism.md`（10 原理 × 症状 × 分级 × 修法选项；完整性缺口查同文件「完整性条目」段），产出分级清单：
 
 - **基本型（必改）**：影响运行效果 / 触发 / 执行正确性——如脚本化缺失、验收不可判、无触发边界、关键约束只出现一次
 - **期望型（建议）**：提升质量但不动也能跑——如替代方案段缺失、未验证标注不足、规则分级不显式
@@ -83,7 +83,8 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 - **静态 10 项**：frontmatter 合规 / 行数 <500 / 触发实测 / 依赖声明（4 项基础自查）+ 代码围栏输出陷阱 / 被动推迟 / 重复模式 / 重复指令 / 占位词（5 项失败模式扫描）+ 分享泛化 S10（内部称呼零残留，分享不产生噪音）
 - **五要素齐全性**：触发 / 步骤 / 输出格式 / 边界 / 测试用例
 - **运行时实测 4 项**：输入输出格式 / 没触发·误触发 / 跳步骤 / 卡死循环——真跑一遍，实测记录进 `.goal/`
-- 详细判据与命令见 `references/checklist.md`（S1-S9 / R1-R4）+ `references/completeness.md`
+- **类别完整性复查**：C1-C5（分类正确 / 清单逐项标结论 / 缺口 vs 履历对照 / 满分≠达标 / 六零件骨架含事件层 hook）——见 `references/checklist.md`
+- 详细判据与命令见 `references/checklist.md`（S1-S9 / R1-R4 / C1-C5）+ `references/completeness.md`
 - ⚠️ **评估器满分 ≠ 完整性过**：满分但完整性清单有缺口 → 不算达标，继续修缺口
 
 **5 交付**
@@ -122,9 +123,9 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 ## 相关文件
 
 - `scripts/skill_eval.py` — 内置评估器（v3 起康复师自维护，共享评估器仍 v2 不动，升级走版本管理见死规矩 1）
-- `references/mechanism.md` — 8 原理处方表（症状 → 分级 → 修法选项）
-- `references/completeness.md` — 类别完整性清单（充分性审查：诊断/复查双源之一，防「评估器没点名就跳过」）
-- `references/checklist.md` — 复查扩展清单（静态 9 项 + 五要素 + 运行时实测 4 项 + 类别完整性 C1-C4）
+- `references/mechanism.md` — 10 原理处方表（症状 → 分级 → 修法选项；含「完整性条目」段，如事件层 hook 缺口修法）
+- `references/completeness.md` — 类别完整性清单（充分性审查：诊断/复查双源之一，防「评估器没点名就跳过」；含通用六零件骨架）
+- `references/checklist.md` — 复查扩展清单（静态 10 项 + 五要素 + 运行时实测 4 项 + 类别完整性 C1-C5）
 - `references/cases/` — 康复案例库（只收复查通过的案例，格式见 cases/README.md）
 - `README.md` — 安装 / 版本 / 升级同步
 
