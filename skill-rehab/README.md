@@ -64,7 +64,7 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 诊断结论来自**两个独立来源**，只看一个会漏判：
 
-- **① 必要条件闸门——内置评估器**（`scripts/skill_eval.py`，10 原理 · 双层评估 · 100 分）：做「有无类」判定——该有的有没有、结构健不健壮。**评估器满分 ≠ skill 全好**：它只证明「必要条件齐了」，证明不了「这一类 skill 该有的都想到了」（案例 01 实证：机器 100 分仍被完整性自查挖出 3 处纪律性盲区）。
+- **① 必要条件闸门——内置评估器**（`scripts/skill_eval.py`，v4.0.0 · 7 层架构 · P0/P1/P2 分级打分 · ~122 分）：做「有无类」判定——该有的有没有、结构健不健壮。**评估器满分 ≠ skill 全好**：它只证明「必要条件齐了」，证明不了「这一类 skill 该有的都想到了」（案例 01 实证：机器 100 分仍被完整性自查挖出 3 处纪律性盲区）。7 层：定位/触发/骨架/质量/安全/工程/生命周期（生命周期不进评估器，靠 completeness.md 引导）。
 - **② 充分性审查——类别完整性清单**（`references/completeness.md`）：按 skill 类别穷尽「这类该有的」，逐项核对——评估器没点名的项，这里也不许跳过。
 
 两源都过才算「诊断合格」；处方（`references/mechanism.md`）把两源缺口合并后按 Kano 五类分级（基本型必改 / 期望型建议 / 兴奋型备选 / 无差异跳过 / 反向红线），按机制给修法，不按格式给——不同风格 skill 不会被修成同一模子。
@@ -93,9 +93,9 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ### 内置评估器
 
-- 版本：`scripts/skill_eval.py`（`__version__ = "3.0.4"`）；10 原理 · 机器层 90 + 评审层 10 · 总分 100
-- 自检：`python3 scripts/skill_eval.py --self` 全过
-- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 46 样本）——评估器升级必过，防「越改越瞎」
+- 版本：`scripts/skill_eval.py`（`__version__ = "4.0.0"`）；7 层架构 · P0 基本型 5 分/P1 期望型 3 分/P2 兴奋型 1 分 · 总分 122（机器 102 + 评审 20）
+- 自检：`python3 scripts/skill_eval.py --self` 全过（层 weight = item 之和 / P0 项 14 个）
+- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 54 样本）——评估器升级必过，防「越改越瞎」
 - 判卷完整性：`./scripts/guard.sh verify`（评估器 sha256 冻结核对）+ `./scripts/guard.sh check`（--self + goldens 全过）
 
 ### 评估器版本管理流程（v3 起）

@@ -145,6 +145,18 @@ def main():
         f.write("\n".join(lines))
     print(f"✅ 修复建议清单已生成: {OUT_SUGGEST}")
     print(f"   未过项 {len(issues)} 条，每条含 分级 + mechanism 修法原文引用（带路径）")
+
+    # 输出 schema 自校验（防建议清单残缺——AI 照着改会漏修）
+    missing = []
+    for iss in issues:
+        pname, itn, detail = parse_issue(iss)
+        if not itn or not detail:
+            missing.append(f"未过项 {itn or '?'}：缺 item 名或详情")
+    if issues and missing:
+        print(f"⚠️ 建议清单 {len(missing)} 处字段残缺，请检查 fixgen 输入 JSON 完整性")
+        sys.exit(1)
+    elif issues:
+        print(f"✅ 建议清单 schema 自检通过：{len(issues)} 项均含 item/详情/分级/修法")
     return 0
 
 
