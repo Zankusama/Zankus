@@ -2,6 +2,7 @@
 name: g21
 description: 测试样本
 version: 0.0.1
+disable: true
 ---
 
 ## 方案决策

@@ -5,7 +5,9 @@ version: 0.0.1
 allowed-tools:
   - Read
   - Grep
+disable: true
 ---
+
 ## 流程
 1. 读取文件
 2. 检查内容

@@ -2,7 +2,9 @@
 name: g52
 description: 判定样本
 version: 0.0.1
+disable: true
 ---
+
 ## 流程
 1. 等用户确认后再处理
 2. 以后有空再看

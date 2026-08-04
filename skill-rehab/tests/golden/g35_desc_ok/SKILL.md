@@ -2,6 +2,7 @@
 name: g35
 description: skill-rehab: 修复，诊断，康复，打磨，评估，体检，全流程服务，用于已封装 skill 的质量问题诊断与康复提升
 version: 0.0.1
+disable: true
 ---
 
 ## 修复流程

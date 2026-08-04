@@ -2,6 +2,7 @@
 name: g15
 description: 测试样本
 version: 0.0.1
+disable: true
 ---
 
 ## 任务

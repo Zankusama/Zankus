@@ -2,6 +2,7 @@
 name: g36
 description: 古埃及金字塔建造方法考据与尼罗河航运史学术研究分析报告汇总说明文本
 version: 0.0.1
+disable: true
 ---
 
 ## 执行步骤

@@ -2,7 +2,9 @@
 name: g13
 description: 测试样本
 version: 0.0.1
+disable: true
 ---
+
 ## 示例
 ```
 🧠 思考检查点
