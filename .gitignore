@@ -1,0 +1,4 @@
+# 本地产物（不进仓库）
+.goal/
+scripts/.snapshots/
+.DS_Store
