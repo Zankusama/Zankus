@@ -14,37 +14,42 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EVAL="${SCRIPT_DIR}/skill_eval.py"
+RUNTIME="${SCRIPT_DIR}/run_runtime_tests.py"
+MONITOR_FILES=("$EVAL" "$RUNTIME")
 SNAPSHOT_DIR="${SCRIPT_DIR}/.snapshots"
 LATEST_LINK="${SNAPSHOT_DIR}/latest.sha256"
-LATEST_FILE="${SNAPSHOT_DIR}/latest.py"
+LATEST_EVAL="${SNAPSHOT_DIR}/latest_eval.py"
+LATEST_RUNTIME="${SNAPSHOT_DIR}/latest_runtime.py"
 
 cmd=${1:-help}
 
-sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+# 聚合 sha：两个监视文件（评估器 + 运行时测试）内容指纹，文件顺序固定
+sha_all() { shasum -a 256 "${MONITOR_FILES[@]}" | awk '{print $1}' | shasum -a 256 | awk '{print $1}'; }
 
 case "$cmd" in
   snapshot)
     mkdir -p "$SNAPSHOT_DIR"
     ts=$(date +%Y%m%d-%H%M%S)
-    sha=$(sha256_of "$EVAL")
-    snap_file="${SNAPSHOT_DIR}/skill_eval_${ts}.py"
-    cp -p "$EVAL" "$snap_file"
-    echo "$sha  $(basename "$snap_file")" > "$LATEST_LINK"
-    cp -p "$EVAL" "$LATEST_FILE"
-    echo "✓ snapshot 冻结：sha256=${sha:0:12}...  文件=${snap_file}"
-    echo "  之后改评估器会被 verify 检出"
+    sha=$(sha_all)
+    cp -p "$EVAL" "${SNAPSHOT_DIR}/skill_eval_${ts}.py"
+    cp -p "$RUNTIME" "${SNAPSHOT_DIR}/run_runtime_tests_${ts}.py"
+    echo "$sha" > "$LATEST_LINK"
+    cp -p "$EVAL" "$LATEST_EVAL"
+    cp -p "$RUNTIME" "$LATEST_RUNTIME"
+    echo "✓ snapshot 冻结：sha256=${sha:0:12}...  文件=skill_eval_${ts}.py + run_runtime_tests_${ts}.py"
+    echo "  之后改评估器或运行时测试会被 verify 检出"
     ;;
   verify)
     if [ ! -f "$LATEST_LINK" ]; then
       echo "✗ no snapshot, 先跑: guard.sh snapshot" >&2
       exit 1
     fi
-    current=$(sha256_of "$EVAL")
-    frozen=$(awk '{print $1}' "$LATEST_LINK")
+    current=$(sha_all)
+    frozen=$(cat "$LATEST_LINK")
     if [ "$current" = "$frozen" ]; then
-      echo "✓ verify OK：评估器未动（sha256 一致）"
+      echo "✓ verify OK：评估器 + 运行时测试未动（聚合 sha 一致）"
     else
-      echo "✗ verify FAIL：评估器被改"
+      echo "✗ verify FAIL：评估器/运行时测试被改"
       echo "  frozen:  ${frozen:0:12}..."
       echo "  current: ${current:0:12}..."
       echo "  如确认是预期升级，跑 guard.sh snapshot 重置基线"
@@ -65,11 +70,14 @@ case "$cmd" in
     echo "✓ check：--self + goldens 全过"
     ;;
   diff)
-    if [ ! -f "$LATEST_FILE" ]; then
+    if [ ! -f "$LATEST_EVAL" ]; then
       echo "✗ no snapshot, 先跑: guard.sh snapshot" >&2
       exit 1
     fi
-    diff -u "$LATEST_FILE" "$EVAL" || true
+    echo "--- skill_eval.py ---"
+    diff -u "$LATEST_EVAL" "$EVAL" || true
+    echo "--- run_runtime_tests.py ---"
+    diff -u "$LATEST_RUNTIME" "$RUNTIME" || true
     ;;
   list)
     if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A "$SNAPSHOT_DIR" 2>/dev/null)" ]; then
