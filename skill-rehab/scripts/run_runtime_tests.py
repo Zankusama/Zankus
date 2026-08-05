@@ -158,13 +158,39 @@ def main():
     # 3a 步骤序列：最长连续编号 ≥3
     steps_n = skill_eval.find_longest_step_seq(content)
     check(steps_n >= 3, "路径·步骤序列", f"最长连续步骤 {steps_n} 处（≥3）")
-    # 3b 工具声明：allowed-tools 存在
-    tools = re.search(r"allowed-tools:\s*\[([^\]]+)\]", content)
-    check(bool(tools), "路径·工具声明", f"allowed-tools: {tools.group(1).strip()[:50]}" if tools else "无 allowed-tools 声明")
+    # 3b 工具声明：allowed-tools 存在（兼容方括号 [..] / 纯逗号 两种格式）
+    tools = re.search(r"allowed-tools:\s*(?:\[([^\]]+)\]|([A-Za-z][\w, .]+))", content)
+    tools_val = (tools.group(1) or tools.group(2) or "").strip() if tools else ""
+    check(bool(tools), "路径·工具声明", f"allowed-tools: {tools_val[:50]}" if tools_val else "无 allowed-tools 声明")
     # 3c 回退/降级：回退、降级、熔断、兜底、备选 关键词 ≥1
     fallback_kws = ["回退", "降级", "熔断", "兜底", "备选", "退化"]
     fb_cnt = sum(content.count(k) for k in fallback_kws)
     check(fb_cnt >= 1, "路径·回退/降级", f"回退类关键词 {fb_cnt} 处（≥1，跳步/失败有降级路径）")
+
+    # ── ④ 异地执行探测（R5 · 环境层真跑，补本次踩坑根因）──
+    print("── 异地执行探测（R5·环境层）──")
+    import subprocess, tempfile
+    tmp = tempfile.mkdtemp(prefix="rehab_r5_")
+    probed = 0
+    for fc in re.findall(r'```[^\n]*\n(.*?)\n```', content, re.DOTALL):
+        if '<' in fc or '>' in fc:  # 含 <> 占位符的文档示例，非真命令
+            continue
+        for cmd in re.findall(r'(?:python3?|bash|sh)\s+([^\n`]+\.(?:py|sh)[^\n`]*)', fc):
+            # 原样在异地 cwd（/tmp）执行，模拟 AI 在用户工作目录跑该命令——
+            # 裸相对路径在此找不到文件 → 退出码 2（python3 can't open file）→ 暴露路径可移植性缺陷
+            try:
+                r = subprocess.run(cmd, shell=True, cwd=tmp,
+                                   capture_output=True, text=True, timeout=30)
+                ok = r.returncode not in (127, 2)  # 127=命令未找到 2=文件未找到
+                probed += 1
+                check(ok, f"异地执行「{cmd[:36]}」",
+                      f"退出码 {r.returncode}（非127/2=路径可达）" if ok
+                      else f"退出码 {r.returncode}（裸相对路径在异地 cwd 下找不到文件）")
+            except subprocess.TimeoutExpired:
+                probed += 1
+                check(False, f"异地执行「{cmd[:36]}」", "超时 30s（可能无限等待输入）")
+    if not probed:
+        print("  （SKILL.md 围栏内无真实脚本调用命令，跳过）\n")
 
     print(f"\n结果: {total} 项检查，{fails} 处 FAIL —— {'✅ 全过' if fails == 0 else '❌ 有 FAIL'}")
     print("⚠️ 以上均为静态近似（description/结构文本判定），动态触发/跳步实测走 R1-R4 人工。")
