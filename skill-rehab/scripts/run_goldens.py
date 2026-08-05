@@ -85,6 +85,21 @@ EXPECT = {
     "g52_imperative_fail":     {("l4_quality", "l4_imperative_style"): False},
     "g53_platform_ok":         {("l2_triggering", "l2_cross_platform"): True},
     "g54_platform_fail":       {("l2_triggering", "l2_cross_platform"): False},
+    # ── v4.1.0 新增：路径可移植性（本次踩坑根因）──
+    "g55_path_fail":           {("l3_skeleton", "l3_path_portability"): False},  # 裸相对脚本调用 + 无路径策略声明
+    # ── v4.2.0 新增：验收锚点升级（交接包 D2）——声明的验收脚本必须真实存在 ──
+    "g56_accept_ghost_script_fail": {("l4_quality", "l4_judgeable_acceptance"): False},  # 声明 scripts/check_ghost.py 但不存在 → FAIL
+    # ── v4.2.0 新增：行为层维度（交接包 D1/D5）——产出载体 / 收敛终端 / 运行时校验 ──
+    "g57_behavior_ok": {
+        ("l4_quality", "l4_output_carrier"): True,
+        ("l4_quality", "l4_convergence_terminal"): True,
+        ("l4_quality", "l4_runtime_check"): True,
+    },  # 产出载体+收敛终端+check 脚本 → 全过
+    "g58_behavior_fail": {
+        ("l4_quality", "l4_output_carrier"): False,
+        ("l4_quality", "l4_convergence_terminal"): False,
+        ("l4_quality", "l4_runtime_check"): False,
+    },  # 纯陪聊无产出 → 行为层全 FAIL（体验型 skill 零交付）
 }
 
 
