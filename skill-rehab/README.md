@@ -64,7 +64,7 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 诊断结论来自**两个独立来源**，只看一个会漏判：
 
-- **① 必要条件闸门——内置评估器**（`scripts/skill_eval.py`，v4.0.0 · 7 层架构 · P0/P1/P2 分级打分 · ~122 分）：做「有无类」判定——该有的有没有、结构健不健壮。**评估器满分 ≠ skill 全好**：它只证明「必要条件齐了」，证明不了「这一类 skill 该有的都想到了」（案例 01 实证：机器 100 分仍被完整性自查挖出 3 处纪律性盲区）。7 层：定位/触发/骨架/质量/安全/工程/生命周期（生命周期不进评估器，靠 completeness.md 引导）。
+- **① 必要条件闸门——内置评估器**（`scripts/skill_eval.py`，v4.2.0 · 7 层架构 · P0/P1/P2 分级打分 · ~134 分）：做「有无类」判定——该有的有没有、结构健不健壮。**评估器满分 ≠ skill 全好**：它只证明「必要条件齐了」，证明不了「这一类 skill 该有的都想到了」（案例 01 实证：机器 100 分仍被完整性自查挖出 3 处纪律性盲区）。7 层：定位/触发/骨架/质量/安全/工程/生命周期（生命周期不进评估器，靠 completeness.md 引导）。
 - **② 充分性审查——类别完整性清单**（`references/completeness.md`）：按 skill 类别穷尽「这类该有的」，逐项核对——评估器没点名的项，这里也不许跳过。
 
 两源都过才算「诊断合格」；处方（`references/mechanism.md`）把两源缺口合并后按 Kano 五类分级（基本型必改 / 期望型建议 / 兴奋型备选 / 无差异跳过 / 反向红线），按机制给修法，不按格式给——不同风格 skill 不会被修成同一模子。
@@ -93,9 +93,9 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ### 内置评估器
 
-- 版本：`scripts/skill_eval.py`（`__version__ = "4.0.0"`）；7 层架构 · P0 基本型 5 分/P1 期望型 3 分/P2 兴奋型 1 分 · 总分 122（机器 102 + 评审 20）
+- 版本：`scripts/skill_eval.py`（`__version__ = "4.2.0"`）；7 层架构 · P0 基本型 5 分/P1 期望型 3 分/P2 兴奋型 1 分 · 总分 134（机器 114 + 评审 20）
 - 自检：`python3 scripts/skill_eval.py --self` 全过（层 weight = item 之和 / P0 项 14 个）
-- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 54 样本）——评估器升级必过，防「越改越瞎」
+- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 56 样本）——评估器升级必过，防「越改越瞎」
 - 判卷完整性：`./scripts/guard.sh verify`（评估器 sha256 冻结核对）+ `./scripts/guard.sh check`（--self + goldens 全过）
 
 ### 评估器版本管理流程（v3 起）
@@ -116,6 +116,8 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ## 变更记录
 
+- **v1.6.0（2026-08-05）**：流程缺陷修复（交接包 D1-D5 全落地，Kano 分级+稳定优先）：修 fixapply.sh KeyError + fixgen.py 正则失配；口径统一（总分 125→134，等级阈值对齐代码）；验收锚点升级（判定词+脚本存在双条件）；行为层 3 新检查项（产出载体/收敛终端/运行时行为校验）；诊断报告增「运行时行为合规」章节；行为测试规范（tests/behavior-*.md + 真实演练可选人工复核）；goldens 56→62 断言；评估器 v4.1.0→v4.2.0。
+- **v1.5.0（2026-08-05）**：路径可移植性（本次踩坑根因）：评估器③骨架层加 l3_path_portability（P1/3分，判裸相对脚本调用须显式声明路径策略）+ run_runtime_tests.py 加 R5 异地执行探测（真跑非文本判，退出码≠127/2）+ checklist 运行时实测 4→5 项 + 新增 golden 样本 g55_path_fail（锁死回归）+ 评估器 v4.0.0→v4.1.0（总分 122→125）。
 - **v1.2.0（2026-08-03）**：双源流程成文（必要条件闸门 + 完整性清单充分性审查）+ goldens 回归集落地 + scriptized 收紧；README 重构为陌生人向四段（首屏/安装/使用/贡献）。
 - **v1.1.1（2026-08-03）**：分享泛化——NOT for 去掉私有 skill 指向（可分享给任何人）；清理内部称呼噪音；checklist 加 S10 分享泛化检查。
 - **v1.1.0（2026-08-03）**：自举康复——死规矩 9 只做基本型（防镀金）；评估器升级走版本管理；修法来源三级声明（设计推断/案例验证/行业实践）。
