@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-skill_eval.py — Skill 质量评估脚本（v4.0.0 · 7 层架构 · P0/P1/P2 分级打分 · ~122 分）
+skill_eval.py — Skill 质量评估脚本（v4.2.0 · 7 层架构 · P0/P1/P2 分级打分 · 134 分）
 ================================================================================
 v4.0.0 重构（2026-08-04 用户拍板）：
   · 从「拼凑的 10 原理」→「7 层系统性架构」：定位/触发/骨架/质量/安全/工程/生命周期
   · 打分原则：P0 基本型 5 分（必过）/ P1 期望型 3 分（建议）/ P2 兴奋型 1 分（可选）
-  · 层权重 = 层内检查项分值之和（自然形成 ~122 分，不凑 100）
+  · 层权重 = 层内检查项分值之和（自然形成 134 分，不凑 100）
   · 达标线：P0 项全过 + 总分 ≥ 85%（跑回归后定精确值）
   · 名称与行业一致（Anthropic 官方 / trailofbits / SkVM·SkCC / Prompt Failure Mode Atlas）
   · 每个检查项对应 mechanism.md 处方表（项名=查表键，L1 约束：诊断→处方链路不断）
@@ -16,7 +16,7 @@ v4.0.0 重构（2026-08-04 用户拍板）：
 
 死规矩 1：升级走版本管理——改前 `guard.sh snapshot` 冻结 / 改后 `--self` + 自举回归 / README 记版本号。
 """
-__version__ = "4.0.0"
+__version__ = "4.2.0"
 
 import os
 import re
@@ -87,8 +87,8 @@ LAYERS = {
     },
     # ── ③ 骨架层 Skeleton（24 分）· skill 结构六零件 ──
     "l3_skeleton": {
-        "title": "③骨架层（24 分）· 机制：skill 结构六零件",
-        "weight": 24,
+        "title": "③骨架层（27 分）· 机制：skill 结构六零件",
+        "weight": 27,
         "items": {
             "l3_step_flow": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -117,6 +117,10 @@ LAYERS = {
                 "layer": "machine", "weight": 5,
                 "title": "确定性转移·脚本化（scripts/ 目录 + 引用真实 + 声明节）",
             },
+            "l3_path_portability": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "路径可移植性（裸相对脚本调用须显式声明路径策略，防异地 cwd 跑不通）",
+            },
             "l3_deterministic_guardrail": {  # 3 评审 P1
                 "layer": "review", "weight": 3,
                 "title": "确定性护栏（高违规代价操作有 hook 物理拦截或显式不挂理由）",
@@ -124,10 +128,10 @@ LAYERS = {
             },
         },
     },
-    # ── ④ 质量层 Quality（43 分）· 执行正确性核心 ──
+    # ── ④ 质量层 Quality（52 分）· 执行正确性核心 ──
     "l4_quality": {
-        "title": "④质量层（43 分）· 机制：执行正确性核心",
-        "weight": 43,
+        "title": "④质量层（52 分）· 机制：执行正确性核心",
+        "weight": 52,
         "items": {
             "l4_judgeable_acceptance": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -192,6 +196,23 @@ LAYERS = {
                 "keywords": ["PROGRESS", "BLOCKED", "gate-", ".goal", "进度", "落盘", "写进", "保存", "续接", "接着做"],
                 "min": 2,
             },
+            # ── v4.2.0 行为层维度（交接包 D1/D5）：产出载体 / 收敛终端 / 运行时行为校验 ──
+            "l4_output_carrier": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "产出载体（声明具体交付物格式：画像/知识包/HTML/SVG/Excel/报告等）",
+                "keywords": ["画像", "知识包", "HTML", "SVG", "Excel", "产出物", "交付物", "必出", "生成.*(?:画像|知识包|报告)", "报告", ".md 文件", ".html", ".xlsx", ".svg"],
+                "min": 1,
+            },
+            "l4_convergence_terminal": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "收敛终端（对话型声明轮次/时长上限或终止条件）",
+                "keywords": ["轮次", "上限", "终止", "收敛", "不超过", "满.*轮", "最多.*轮", "就停", "停"],
+                "min": 1,
+            },
+            "l4_runtime_check": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "运行时行为校验（行为约束有 scripts/check_*.py 且被引用，禁「留 AI 理由」兜底）",
+            },
         },
     },
     # ── ⑤ 安全层 Safety（16 分）· 越权与危险操作防护 ──
@@ -251,7 +272,7 @@ LAYERS = {
     # ⑦ 生命周期层：不进评估器（元流程，靠 completeness.md 引导）——见 references/completeness.md
 }
 
-TOTAL_EXPECTED = sum(LAYERS[l]["weight"] for l in LAYERS)  # 自然形成 ~122
+TOTAL_EXPECTED = sum(LAYERS[l]["weight"] for l in LAYERS)  # 自然形成 134（机器 114 + 评审 20）
 PASS_P0_ALL = True  # 达标硬条件：P0 项全过
 PASS_LINE = 0.85  # 达标软条件：总分 ≥ 85%
 
@@ -489,6 +510,23 @@ def ev_l3(content, skill_dir):
         f"scripts/ 目录{'✅' if has_dir else '❌'} 引用真实{'✅' if refs_real else '❌'} 声明节{'✅' if has_decl else '❌'}" if script_ok
         else "❌可机器化约束没脚本化（需 scripts/ 目录 + 引用脚本真实存在 + 可机器化验收声明节）")
 
+    # l3_path_portability（机器 P1）：路径可移植性——防 AI 在异地 cwd 跑不通（本次踩坑根因）
+    # 判据：围栏内脚本调用若有「裸相对路径」（无 / 开头、$变量、~、..），须 SKILL.md 显式声明路径策略，
+    #       否则 AI 在用户工作目录执行时必 FileNotFoundError（second-brain 实锤）
+    fences = re.findall(r'```[^\n]*\n(.*?)\n```', content, re.DOTALL)
+    raw_calls = []
+    for fc in fences:
+        if '<' in fc or '>' in fc:  # 含 <> 占位符的文档示例命令，非真要在异地跑
+            continue
+        raw_calls += re.findall(r'(?:python3?|bash|sh)\s+([^\s`]+\.(?:py|sh))', fc)
+    bare_rel = [c for c in raw_calls
+                if not (c.startswith(('/', '$', '~', '..')) or 'SKILL' in c.upper())]
+    path_decl = bool(re.search(r'相对路径引用|在 skill 目录|cd 到 ?(?:技能配置|skills)|包内零绝对路径|脚本一律相对|包内.*相对路径', content))
+    portable = (not bare_rel) or path_decl
+    res["l3_path_portability"] = machine_item(it["l3_path_portability"]["weight"], portable,
+        "✅路径可移植（无裸相对脚本调用 或 已显式声明路径策略）" if portable
+        else f"❌路径可移植性缺失（裸相对脚本调用 {bare_rel} 且无路径策略声明）——AI 在异地 cwd 下 FileNotFoundError")
+
     # l3_deterministic_guardrail（评审 P1）：hook 或显式不挂
     has_guard, guard_pat = check_pattern(content, it["l3_deterministic_guardrail"]["patterns"])
     res["l3_deterministic_guardrail"] = review_item(it["l3_deterministic_guardrail"]["weight"], has_guard,
@@ -505,12 +543,36 @@ def ev_l4(content, skill_dir):
     desc = fm.get("description", "")
     body = content.replace(desc, "")
 
-    # l4_judgeable_acceptance（机器 P0）
+    # l4_judgeable_acceptance（机器 P0）：验收可执行 = 关键词≥2 且 声明的验收脚本真实存在
+    # 升级（v4.2.0 交接包 D2）：从「数关键词」升级为「验证验收声明可机器执行 + 判定词真实存在」
     judge_cnt = count_keyword(content, it["l4_judgeable_acceptance"]["keywords"])
-    judge_ok = judge_cnt >= it["l4_judgeable_acceptance"]["min"]
+    judge_ok_base = judge_cnt >= it["l4_judgeable_acceptance"]["min"]
+    # 提取 SKILL.md 声明的验收脚本引用（scripts/*.py|.sh）
+    declared = sorted(set(
+        m for m in re.findall(r'scripts/[A-Za-z0-9_\-]+\.(?:py|sh)', content)
+        if not re.search(r'xxx|TBD|<[^>]+>|待填', m)  # 占位符样式不算真实声明
+    ))
+    miss = []
+    # fixapply 沙箱副本（tests/fixsandbox/ 下只复制了 SKILL.md，无 scripts/）→ 豁免存在性硬判，防误伤「修一验一」
+    sandbox_mode = skill_dir and "fixsandbox" in skill_dir.replace("\\", "/")
+    if declared and skill_dir and not sandbox_mode:
+        # 真实目录模式：声明的脚本必须存在，否则 FAIL（防「声称有脚本但脚本不存在」）
+        miss = [p for p in declared if not os.path.isfile(os.path.join(skill_dir, p))]
+    script_ok = not miss
+    judge_ok = judge_ok_base and script_ok
+    if judge_ok:
+        judge_detail = f"可执行判定词 {judge_cnt} 处（≥{it['l4_judgeable_acceptance']['min']}）"
+        if declared:
+            judge_detail += f" + 声明的验收脚本 {len(declared)} 个存在（{', '.join(declared[:3])}{'…' if len(declared)>3 else ''}）"
+    else:
+        reason = []
+        if not judge_ok_base:
+            reason.append(f"可执行判定词 {judge_cnt} 处（<{it['l4_judgeable_acceptance']['min']}）——「看看效果」类验收，模型自己判自己必自欺")
+        if miss:
+            reason.append(f"声明的验收脚本不存在: {', '.join(miss)}——验收声明与实际文件断裂，修好无锚点")
+        judge_detail = "❌" + "；".join(reason)
     res["l4_judgeable_acceptance"] = machine_item(it["l4_judgeable_acceptance"]["weight"], judge_ok,
-        f"可执行判定词 {judge_cnt} 处（≥{it['l4_judgeable_acceptance']['min']}）" if judge_ok
-        else "❌验收不可机器判——「看看效果」类验收，模型自己判自己必自欺")
+        judge_detail)
 
     # l4_anchoring（机器 P1）
     anch_cnt = count_keyword(content, it["l4_anchoring"]["keywords"])
@@ -584,6 +646,32 @@ def ev_l4(content, skill_dir):
     res["l4_state_materialization"] = machine_item(it["l4_state_materialization"]["weight"], state_ok,
         f"状态物化词 {state_cnt} 处（≥{it['l4_state_materialization']['min']}）" if state_ok
         else "❌无状态物化——模型无状态，跨步状态不落盘必失忆（换会话就重做）")
+
+    # ── v4.2.0 行为层维度（交接包 D1/D5）──
+
+    # l4_output_carrier（机器 P1）：声明具体产出载体（对话/陪伴型 skill 跑完必须有交付物）
+    carrier_cnt = count_keyword(content, it["l4_output_carrier"]["keywords"])
+    carrier_ok = carrier_cnt >= it["l4_output_carrier"]["min"]
+    res["l4_output_carrier"] = machine_item(it["l4_output_carrier"]["weight"], carrier_ok,
+        f"产出载体词 {carrier_cnt} 处（≥{it['l4_output_carrier']['min']}）" if carrier_ok
+        else "❌无具体产出载体声明（画像/知识包/HTML/SVG/Excel/报告）——体验型 skill 跑完零交付，用户白聊一场")
+
+    # l4_convergence_terminal（机器 P1）：收敛终端（对话型 skill 必须有轮次/时长上限或终止条件）
+    conv_cnt = count_keyword(content, it["l4_convergence_terminal"]["keywords"])
+    conv_ok = conv_cnt >= it["l4_convergence_terminal"]["min"]
+    res["l4_convergence_terminal"] = machine_item(it["l4_convergence_terminal"]["weight"], conv_ok,
+        f"收敛终端词 {conv_cnt} 处（≥{it['l4_convergence_terminal']['min']}）" if conv_ok
+        else "❌无收敛终端（轮次/时长上限或终止条件）——对话可无限延展，没有「跑完」的边界，体验无终局")
+
+    # l4_runtime_check（机器 P1）：运行时行为规则必须有校验脚本（禁「留 AI 理由」作为确定性规则兜底）
+    rt_checks = sorted(set(
+        m for m in re.findall(r'scripts/check_[A-Za-z0-9_\-]+\.py', content)
+        if not re.search(r'xxx|TBD|<[^>]+>|待填', m)
+    ))
+    rt_ok = len(rt_checks) >= 1
+    res["l4_runtime_check"] = machine_item(it["l4_runtime_check"]["weight"], rt_ok,
+        f"运行时校验脚本 {len(rt_checks)} 个（{', '.join(rt_checks) if rt_checks else '无'}）" if rt_ok
+        else "❌无运行时校验脚本（scripts/check_*.py）——「必须 X 才 Y」类行为规则留 AI 自觉，违背「模型自判必自欺」确定性原则")
     return res
 
 
@@ -717,6 +805,44 @@ def evaluate_skill(skill_name, skill_path):
     else:
         result["grade"] = "C"
     result["version"] = extract_version(content)
+
+    # ── v4.2.0 运行时行为合规汇总（交接包 D4）：每条行为规则标注 机器校验 / AI 自觉 ──
+    rt = result["layers"].get("l4_quality", {})
+    result["runtime_compliance"] = {
+        "rules": [
+            {
+                "item": "l4_runtime_check",
+                "title": "运行时行为校验脚本",
+                "check_type": "机器校验" if rt.get("l4_runtime_check", {}).get("passed") else "AI 自觉",
+                "detail": rt.get("l4_runtime_check", {}).get("detail", ""),
+            },
+            {
+                "item": "l4_output_carrier",
+                "title": "产出载体声明",
+                "check_type": "机器校验" if rt.get("l4_output_carrier", {}).get("passed") else "AI 自觉",
+                "detail": rt.get("l4_output_carrier", {}).get("detail", ""),
+            },
+            {
+                "item": "l4_convergence_terminal",
+                "title": "收敛终端（轮次/终止条件）",
+                "check_type": "机器校验" if rt.get("l4_convergence_terminal", {}).get("passed") else "AI 自觉",
+                "detail": rt.get("l4_convergence_terminal", {}).get("detail", ""),
+            },
+            {
+                "item": "l4_judgeable_acceptance",
+                "title": "验收锚点（判定词+脚本存在）",
+                "check_type": "机器校验" if rt.get("l4_judgeable_acceptance", {}).get("passed") else "AI 自觉",
+                "detail": rt.get("l4_judgeable_acceptance", {}).get("detail", ""),
+            },
+        ],
+        # 警示：纯 AI 自觉规则（无脚本兜底的行为约束）
+        "warnings": [r["title"] for r in [
+            {"title": "运行时行为校验", "item": "l4_runtime_check"},
+            {"title": "产出载体", "item": "l4_output_carrier"},
+            {"title": "收敛终端", "item": "l4_convergence_terminal"},
+            {"title": "验收锚点", "item": "l4_judgeable_acceptance"},
+        ] if not rt.get(r["item"], {}).get("passed")] or ["（无——行为规则均有机器校验）"],
+    }
     return result
 
 
@@ -738,7 +864,7 @@ def generate_report(results):
     report = f"""# Skill 质量评估报告（v4.0.0 · 7 层架构 · P0/P1/P2 分级打分 · {TOTAL_EXPECTED} 分）
 
 > **生成时间**: {now} | **评估范围**: {len(results)} 个 Skill
-> **评估标准**: 7 层架构（①定位16 ②触发16 ③骨架24 ④质量43 ⑤安全16 ⑥工程7）——⑦生命周期不进评估器（元流程，completeness.md 引导）
+> **评估标准**: 7 层架构（①定位16 ②触发16 ③骨架27 ④质量52 ⑤安全16 ⑥工程7）——⑦生命周期不进评估器（元流程，completeness.md 引导）
 > **打分原则**: P0 基本型 5 分（必过）/ P1 期望型 3 分（建议）/ P2 兴奋型 1 分（可选）；层权重 = 项之和（自然形成，不凑分）
 > **达标条件**: P0 项全过（硬性）+ 总分 ≥ {int(PASS_LINE*100)}%（软性）
 > **双层评估**: 机器层硬判（可正则判）+ 评审层（🟡 需人工/子 Agent 按证据复核）
@@ -793,6 +919,18 @@ def generate_report(results):
             for ri in r["review_items"]:
                 report += f"| {ri['title']} | {ri['default']} | {ri['evidence'][:60]} | ☐ 过 / ☐ 不过 |\n"
             report += "\n"
+
+    # v4.2.0 运行时行为合规章节（交接包 D4）：每条行为规则标注 机器校验/AI 自觉，警示纯 AI 自觉
+    report += "## 运行时行为合规（v4.2.0 新增 · 交接包 D4）\n\n"
+    report += "> 判定依据：行为层规则必须有机器校验脚本（scripts/check_*.py），纯「AI 自觉」规则是确定性缺口——违背「模型自判必自欺」原则。\n\n"
+    for r in results:
+        rc = r.get("runtime_compliance", {})
+        report += f"### {r['skill_name']}\n\n| 行为规则 | 校验类型 | 状态 | 详情 |\n|:--------|:-------:|:----:|:-----|\n"
+        for rule in rc.get("rules", []):
+            is_ai = rule["check_type"] == "AI 自觉"
+            st = "⚠️" if is_ai else "✅"
+            report += f"| {rule['title']} | {rule['check_type']} | {st} | {rule['detail'][:70]} |\n"
+        report += f"\n**⚠️ 纯 AI 自觉警示**: {'、'.join(rc.get('warnings', []))}\n\n"
     report += """## 方法论
 
 - **7 层架构**: 定位（身份）/触发（激活）/骨架（结构六零件）/质量（执行正确性）/安全（越权防护）/工程（可维护性）/生命周期（元流程不进评估器）
