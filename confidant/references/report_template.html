@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>情绪画像 · 概念化版 · Confidant</title>
+<style>
+  :root{
+    --ink:#243240; --soft:#6b7c8e; --bg:#e9eef3; --card:#ffffff; --line:#d8e1e9;
+    --risk:#d9694e; --risk-bg:#fbece8;   /* 卡住 / 风险 */
+    --mech:#3f6f9f; --mech-bg:#eaf1f8;   /* 机制 / 认知 */
+    --act:#4f9d77;  --act-bg:#eaf5ef;    /* 行动 / 保护 */
+    --warn:#c97e4a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--card);color:var(--ink);padding:0;line-height:1.7}
+  .wrap{width:100%;margin:0;background:var(--card)}
+
+  /* ── 统领封面 ── */
+  .cover{background:linear-gradient(135deg,#243240,#3a6b7e);color:#fff;
+    padding:40px 36px 32px}
+  .cover .kicker{font-size:12px;letter-spacing:4px;opacity:.7;margin-bottom:10px}
+  .cover h1{font-size:38px;font-weight:800;letter-spacing:2px;line-height:1.1}
+  .cover .sub{font-size:15px;opacity:.92;margin-top:10px;max-width:560px}
+  .cover .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px}
+  .cover .meta span{background:rgba(255,255,255,.15);border-radius:20px;
+    padding:4px 12px}
+  .cover .tags{margin-top:14px;font-size:11px;opacity:.8}
+
+  /* ── 首屏概览 ── */
+  .overview{display:flex;gap:0;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+  .ov-insight{flex:1 1 320px;background:var(--mech-bg);padding:24px 30px;
+    border-right:1px solid var(--line)}
+  .ov-insight .lab{font-size:11px;letter-spacing:2px;color:var(--mech);
+    font-weight:700;margin-bottom:8px}
+  .ov-insight .big{font-size:18px;font-weight:700;color:var(--ink);line-height:1.55}
+  .ov-gauges{flex:1 1 280px;padding:22px 30px;display:flex;flex-direction:column;
+    gap:12px;justify-content:center}
+  .gauge{font-size:13px}
+  .gauge .gl{display:flex;justify-content:space-between;margin-bottom:4px}
+  .gauge .gl b{color:var(--ink)}
+  .gauge .bar{height:8px;background:var(--bg);border-radius:6px;overflow:hidden}
+  .gauge .bar i{display:block;height:100%;border-radius:6px}
+
+  /* ── 叙事主轴（左脊线 + 编号节点）── */
+  .spine{padding:8px 36px 0;max-width:1080px;margin:0 auto}
+  .sec{position:relative;padding:22px 0 22px 56px;border-left:2px solid var(--line);
+    margin-left:14px}
+  .sec:last-child{border-left-color:transparent}
+  .sec .node{position:absolute;left:-15px;top:24px;width:28px;height:28px;
+    border-radius:50%;color:#fff;font-size:13px;font-weight:700;
+    display:flex;align-items:center;justify-content:center}
+  .sec h2{font-size:17px;font-weight:700;margin-bottom:12px;color:var(--ink)}
+  .sec .tag{font-size:11px;padding:2px 9px;border-radius:6px;margin-left:8px;
+    vertical-align:middle;font-weight:600}
+  .t-risk{background:var(--risk-bg);color:var(--risk)}
+  .t-mech{background:var(--mech-bg);color:var(--mech)}
+  .t-act{background:var(--act-bg);color:var(--act)}
+
+  /* 5-P 网格 */
+  .p5{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .p5 .pc{border-radius:10px;padding:11px 13px;font-size:13px;border:1px solid var(--line)}
+  .p5 .pc b{display:block;margin-bottom:3px;font-size:12px}
+  .pc.presenting{background:#f4f7fa}.pc.predisposing{background:#f4f7fa}
+  .pc.precipitating{background:var(--risk-bg);border-color:#f3cfc4}
+  .pc.perpetuating{background:var(--risk-bg);border-color:#f3cfc4}
+  .pc.protective{background:var(--act-bg);border-color:#cfe7da}
+  .pc.core{background:#f0f2f5;grid-column:1/3}
+  .pc .lever{color:var(--risk);font-weight:700}
+
+  /* 症状谱系 */
+  .spec{border-radius:10px;padding:11px 14px;margin-bottom:9px;font-size:14px;
+    background:#f4f7fa;border-left:4px solid var(--mech)}
+  .spec b{color:var(--ink)}
+
+  /* 机制卡 */
+  .mech{background:var(--mech-bg);border-radius:12px;padding:16px 18px}
+  svg{display:block;margin:6px auto;max-width:100%}
+  /* ⚠️ SVG 内文字禁止用 <b> 包裹：SVG 命名空间不渲染 HTML <b>，会导致文字消失（只有框没字）。
+     要粗体请给 .flow-t 加 font-weight:700（已加），或给 text 元素写 font-weight 属性。 */
+  .flow-t{font-size:12px;fill:var(--ink);font-weight:700}
+  .flow-s{font-size:11px;fill:var(--soft)}
+  .src{font-size:11px;color:var(--soft);margin-top:8px;border-top:1px dashed var(--line);
+    padding-top:6px}
+
+  /* 洞见 */
+  .insight{background:var(--risk-bg);border-left:4px solid var(--warn);
+    border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:14px}
+  .insight b{color:var(--warn)}
+
+  /* 行动 */
+  .act{display:flex;gap:12px;align-items:flex-start;padding:12px 0;
+    border-bottom:1px dashed var(--line)}
+  .act:last-child{border-bottom:none}
+  .act .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--act);
+    color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;
+    justify-content:center}
+  .act .body{font-size:14px}
+  .act .body b{color:var(--act)}
+  .act.first{background:var(--act-bg);border-radius:10px;padding:14px;margin-bottom:6px}
+  .act.first .n{background:var(--warn)}
+
+  /* 热线 + 免责 */
+  .hot{background:var(--risk-bg);border-top:3px solid var(--risk);
+    padding:20px 36px;font-size:14px}
+  .hot b{color:var(--risk)}
+  .disc{font-size:12px;color:var(--soft);text-align:center;padding:16px 36px;
+    background:var(--card)}
+  @media print{.cover{background:#243240 !important;-webkit-print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 统领封面（"情绪画像"四字必须保留，作文件级主标题） -->
+  <div class="cover">
+    <div class="kicker">CONFIDANT · 情绪画像</div>
+    <h1>{{cover_title｜默认：情绪画像}}</h1>
+    <div class="sub">{{cover_sub：一句话说明这是用心理学框架帮你"看清自己卡在哪"的自省工具，不是诊断}}</div>
+    <div class="meta">
+      <span>{{date}}</span>
+      <span>自省用</span>
+      <span>概念化版</span>
+    </div>
+    <div class="tags">框架来源：{{框架1 作者 年 出处}} · {{框架2}} · {{框架3}} · NIMH</div>
+  </div>
+
+  <!-- 首屏概览：一眼结论 + 状态条 -->
+  <div class="overview">
+    <div class="ov-insight">
+      <div class="lab">一眼结论</div>
+      <div class="big">{{hero_insight：把最核心的重新框定压成一句话，让人一眼看懂}}</div>
+    </div>
+    <div class="ov-gauges">
+      <div class="gauge"><div class="gl"><b>焦虑</b><span>{{gauge_焦虑}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_焦虑_pct}}%;background:var(--risk)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>睡眠</b><span>{{gauge_睡眠}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_睡眠_pct}}%;background:var(--mech)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>工作</b><span>{{gauge_工作}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_工作_pct}}%;background:var(--warn)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>希望</b><span>{{gauge_希望}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_希望_pct}}%;background:var(--act)"></i></div></div>
+    </div>
+  </div>
+
+  <div class="spine">
+
+    <!-- 一、个案概念化（5-P 模型） -->
+    <div class="sec">
+      <div class="node" style="background:var(--mech)">1</div>
+      <h2>个案概念化（5-P 模型）<span class="tag t-mech">机制</span></h2>
+      <div class="p5">
+        <div class="pc presenting"><b>Presenting 呈现实况</b>{{presenting}}</div>
+        <div class="pc predisposing"><b>Predisposing 易感性</b>{{predisposing}}</div>
+        <div class="pc precipitating"><b>Precipitating 诱发</b>{{precipitating}}</div>
+        <div class="pc perpetuating"><b>Perpetuating 维持因素</b>{{perpetuating}} <span class="lever">← 杠杆点在这</span></div>
+        <div class="pc protective"><b>Protective 保护因素</b>{{protective}}</div>
+        <div class="pc core"><b>核心假设</b>{{core_assumption}}</div>
+      </div>
+      <div class="src">5-P 个案概念化：Macneil et al. 2012, BMC Medicine（白名单级出处，须真实可查）</div>
+    </div>
+
+    <!-- 二、症状谱系定位 -->
+    <div class="sec">
+      <div class="node" style="background:var(--mech)">2</div>
+      <h2>症状谱系定位<span class="tag t-mech">非诊断</span></h2>
+      <div class="spec"><b>{{维度1名}}</b>：{{维度1内容，按公认维度归类，对照 NIMH/GAD-7 描述但不下诊断}}</div>
+      <div class="spec"><b>{{维度2名}}</b>：{{维度2内容}}</div>
+      <div class="spec"><b>{{维度3名}}</b>：{{维度3内容}}</div>
+      <div class="spec"><b>{{维度4名}}</b>：{{维度4内容}}</div>
+      <div class="src">本区只做维度归类、不贴诊断标签；来源 NIMH / MedlinePlus 等白名单</div>
+    </div>
+
+    <!-- 三、机制图 1 -->
+    <div class="sec">
+      <div class="node" style="background:var(--risk)">3</div>
+      <h2>{{机制图1标题，如：你的职业位置：高紧张象限}}<span class="tag t-risk">卡住</span></h2>
+      <div class="mech">
+        {{mech1_svg：AI 选最贴合框架画完整 <svg> 粘此；禁止 <b> 包裹文字，用 class="flow-t" 加粗}}
+        <div class="src">{{机制1来源，框架作者 年 出处，须白名单}}</div>
+      </div>
+    </div>
+
+    <!-- 四、机制图 2 -->
+    <div class="sec">
+      <div class="node" style="background:var(--risk)">4</div>
+      <h2>{{机制图2标题}}<span class="tag t-risk">卡住</span></h2>
+      <div class="mech">
+        {{mech2_svg}}
+        <div class="src">{{机制2来源}}</div>
+      </div>
+    </div>
+
+    <!-- 五、机制图 3 -->
+    <div class="sec">
+      <div class="node" style="background:var(--risk)">5</div>
+      <h2>{{机制图3标题}}<span class="tag t-risk">卡住</span></h2>
+      <div class="mech">
+        {{mech3_svg}}
+        <div class="src">{{机制3来源}}</div>
+      </div>
+    </div>
+
+    <!-- 六、重新框定 -->
+    <div class="sec">
+      <div class="node" style="background:var(--warn)">6</div>
+      <h2>给你没说出口的重新框定<span class="tag t-risk">新视角</span></h2>
+      <div class="insight"><b>1. {{洞见1标题}}</b>{{洞见1内容：套框架后推出的新视角，须链框架，非复述}}</div>
+      <div class="insight"><b>2. {{洞见2标题}}</b>{{洞见2内容}}</div>
+      <div class="insight"><b>3. {{洞见3标题（可选）}}</b>{{洞见3内容}}</div>
+      <div class="insight"><b>4. {{洞见4标题（可选）}}</b>{{洞见4内容}}</div>
+    </div>
+
+    <!-- 七、可以试试的方向 -->
+    <div class="sec">
+      <div class="node" style="background:var(--act)">7</div>
+      <h2>可以试试的方向（有依据，不是医嘱）<span class="tag t-act">行动</span></h2>
+      <div class="act first"><div class="n">★</div><div class="body"><b>{{方向1名·今天就能做的一件}}</b>：{{做法}}。原理：{{一句大白话原理}}。研究（{{出处}}）证实{{效果}}。</div></div>
+      <div class="act"><div class="n">2</div><div class="body"><b>{{方向2名}}</b>：{{做法+原理+出处}}</div></div>
+      <div class="act"><div class="n">3</div><div class="body"><b>{{方向3名}}</b>：{{做法+原理+出处}}</div></div>
+      <div class="act"><div class="n">4</div><div class="body"><b>{{方向4名}}</b>：{{做法+原理+出处}}</div></div>
+      <div class="src">{{方向总体免责：基于实证框架的自助方向，非医疗建议；持续≥数周且影响白天功能建议专业评估}}</div>
+    </div>
+
+  </div>
+
+  <!-- 热线（一字不差，禁止改动） -->
+  <div class="hot">
+    <b>如果哪天觉得实在扛不住</b><br>
+    全国心理援助热线 <b>12356</b>（24 小时）<br>
+    北京心理危机干预中心 手机 <b>010-82951332</b> / 座机 <b>800-810-1117</b>
+  </div>
+
+  <p class="disc">这是基于实证心理学框架的「个案概念化」自我理解工具，不是医疗诊断，也不能替代专业评估。框架旨在帮你看见机制、找到杠杆点；如果情绪已影响吃饭、睡觉、干活，请考虑联系上面的热线或专业机构。</p>
+
+</div>
+</body>
+</html>
