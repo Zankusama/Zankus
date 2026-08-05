@@ -46,8 +46,12 @@ def load_mechanism_fix(item_name):
     if not os.path.isfile(MECHANISM):
         return None, None
     text = open(MECHANISM, encoding="utf-8").read()
-    # 定位 ### item_name（...）段落，取到下一个 ### 或 ## 前
-    m = re.search(rf"^### {re.escape(item_name)}（[^）]*）\s*\n(.*?)(?=^### |^## |\Z)", text, re.DOTALL | re.MULTILINE)
+    # 定位 ### 中文名（item_name · M层 · ...）段落，取到下一个 ### 或 ## 前
+    # 兼容两种标题格式：item 名在括号内（如「### 验收可执行（l4_judgeable_acceptance · M层 · P0 5 分）」）
+    # 或 item 名直接开头的旧格式（如「### l3_scriptized（…）」）
+    m = re.search(
+        rf"^### (?:[^（]+（{re.escape(item_name)}[^）]*）|{re.escape(item_name)}[^\n]*)\s*\n(.*?)(?=^### |^## |\Z)",
+        text, re.DOTALL | re.MULTILINE)
     if not m:
         return None, None
     seg = m.group(1)
@@ -180,7 +184,7 @@ def gen_rehab(skill_path, issues, version):
     lines.append("")
     lines.append(f"| 阶段 | 总分 | 等级 | 未过项 |")
     lines.append(f"|:---|:---:|:---:|:---:|")
-    lines.append(f"| 修复前 | {before['score']}/100 | {before['grade']} | {len(before.get('issues', []))} |")
+    lines.append(f"| 修复前 | {before['score']}/{skill_eval.TOTAL_EXPECTED} | {before['grade']} | {len(before.get('issues', []))} |")
     lines.append(f"| 修复后 | （沙箱验证后填） | — | — |")
     lines.append("")
     lines.append("## 修复项明细")
