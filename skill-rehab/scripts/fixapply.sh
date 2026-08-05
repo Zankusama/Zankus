@@ -56,7 +56,7 @@ import skill_eval
 item = '${ITEM}'
 r = skill_eval.evaluate_skill('${SKILL}', '${SANDBOX_FILE}')
 found = False
-for pn, layer in r['principles'].items():
+for pn, layer in r['layers'].items():
     for itn, it in layer.items():
         if itn == item:
             found = True
