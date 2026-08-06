@@ -34,6 +34,7 @@
 | `scripts/guard.sh` | 判卷冻结（snapshot/verify）+ 基线守线（record/check），防执行者作弊 |
 | `scripts/coverage-check.sh` | 完整性核验（对照覆盖清单逐点检查任务书），防管理者偷删内容 |
 | `scripts/pyramid-gen.py` | **金字塔结构图生成器**（路径预览用）：`--apex 塔尖 --pillars 柱1,柱2 --base 护栏1,护栏2`，参数化自适应，零依赖 |
+| `scripts/acceptance-check.sh` | **验收三问自检**（G6 写书后自动跑）：①出处锚定 ②防凑数 ③风险定档，机器强制 |
 
 ## 升级 / 回滚
 

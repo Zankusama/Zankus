@@ -66,6 +66,9 @@ grep -n "画像后闭环" SKILL.md
 grep -n "2.6 对话兜底\|重述优先于追问" SKILL.md
 # 交付画像校验能力已落地（--output 参数）
 grep -n "交付画像\|--output" scripts/check_safety.py
-# 用模板本体模拟「未替换」画像 → 应 exit 1（占位符残留即失守）
-python3 scripts/check_safety.py --output references/report_template.html && echo "❌ 应 fail" || echo "✅ 占位符残留被拦截 (exit 1)"
+# 构造「AI 填了一半、留占位符残留」的假交付画像 → 应 exit 1（占位符残留即失守）
+# ⚠️ 不许拿模板本体测（模板含 {{ 是设计使然，永远 fail = 测试成摆设）
+cp references/report_template.html /tmp/confidant-fake-output.html && sed -i '' 's/{{cover_sub}}/{{未替换的占位符}}/g' /tmp/confidant-fake-output.html
+python3 scripts/check_safety.py --output /tmp/confidant-fake-output.html && echo "❌ 应 fail" || echo "✅ 占位符残留被拦截 (exit 1)"
+rm -f /tmp/confidant-fake-output.html
 ```

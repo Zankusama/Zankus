@@ -16,7 +16,7 @@ v4.0.0 重构（2026-08-04 用户拍板）：
 
 死规矩 1：升级走版本管理——改前 `guard.sh snapshot` 冻结 / 改后 `--self` + 自举回归 / README 记版本号。
 """
-__version__ = "4.2.0"
+__version__ = "4.3.0"
 
 import os
 import re
@@ -664,14 +664,18 @@ def ev_l4(content, skill_dir):
         else "❌无收敛终端（轮次/时长上限或终止条件）——对话可无限延展，没有「跑完」的边界，体验无终局")
 
     # l4_runtime_check（机器 P1）：运行时行为规则必须有校验脚本（禁「留 AI 理由」作为确定性规则兜底）
+    # v4.3.0 修复：原只认 scripts/check_*.py，误报用 .sh 等价实现运行时校验的 skill（leader-translator 的
+    # stage-gate.sh/acceptance-check.sh 功能等价但命名非 check_*.py）——扩为「含校验语义的 .py/.sh」。
+    # 校验语义关键词：check/verify/validate/lint/gate/guard/coverage/acceptance（生成器如 pyramid-gen 不算）。
     rt_checks = sorted(set(
-        m for m in re.findall(r'scripts/check_[A-Za-z0-9_\-]+\.py', content)
-        if not re.search(r'xxx|TBD|<[^>]+>|待填', m)
+        m for m in re.findall(r'scripts/[A-Za-z0-9_\-]+\.(?:py|sh)', content)
+        if re.search(r'check|verify|valid|lint|gate|guard|coverage|acceptance', m, re.I)
+        and not re.search(r'xxx|TBD|<[^>]+>|待填', m)
     ))
     rt_ok = len(rt_checks) >= 1
     res["l4_runtime_check"] = machine_item(it["l4_runtime_check"]["weight"], rt_ok,
         f"运行时校验脚本 {len(rt_checks)} 个（{', '.join(rt_checks) if rt_checks else '无'}）" if rt_ok
-        else "❌无运行时校验脚本（scripts/check_*.py）——「必须 X 才 Y」类行为规则留 AI 自觉，违背「模型自判必自欺」确定性原则")
+        else "❌无运行时校验脚本（scripts/ 含校验语义的 .py/.sh，如 check_*.py / stage-gate.sh / acceptance-check.sh）——「必须 X 才 Y」类行为规则留 AI 自觉，违背「模型自判必自欺」确定性原则")
     return res
 
 

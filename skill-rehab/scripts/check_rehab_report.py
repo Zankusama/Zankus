@@ -3,10 +3,13 @@
 check_rehab_report.py — 康复履历 schema 校验（输出质量闸门）
 =============================================================
 校验修复履历/诊断报告的必填字段齐全性——防「做完了但履历残缺」（AI 手写可能漏项）。
+v1.7.3 新增：诊断产物锁——诊断目录必须含「完整性核对记录.md」+「设计评审实测记录.md」，
+缺任一 = 诊断不合格（防完整性清单静默跳项 / 设计评审静默跳步，物理强制不靠自觉）。
 
 用法:
-  python3 check_rehab_report.py <履历文件>        # 校验一个 md 履历
-  python3 check_rehab_report.py --self            # 自检（内置样本）
+  python3 check_rehab_report.py <履历文件>          # 校验一个 md 履历
+  python3 check_rehab_report.py --dir <诊断目录>    # 校验诊断目录产物锁（完整性+设计评审记录在）
+  python3 check_rehab_report.py --self              # 自检（内置样本）
 
 退出码: 0 = 必填字段齐全；1 = 缺必填字段（列出缺什么）；2 = 文件不可读/格式不符
 
@@ -19,12 +22,31 @@ check_rehab_report.py — 康复履历 schema 校验（输出质量闸门）
   - 修法
 校验「期望 vs 实际」对比列（如有）:
   - 修复前分 / 修复后分 都存在才放行
+
+诊断产物锁（v1.7.3）:
+  - 完整性核对记录.md — 类别 + 每项 [脚本化✓]/[命令化✓]/[显式留AI✓]/[❌缺口] 逐项标
+  - 设计评审实测记录.md — 真实任务描述 + 每一步产物/闸门结果 + 挑出的毛病
 """
+import os
 import re
 import sys
 
 REQUIRED = ["项", "未过详情", "分级", "为什么修", "对应机制", "修法"]
 GRADES = ("基本型", "期望型", "兴奋型", "无差异型", "反向型")
+
+# v1.7.3 诊断产物锁：诊断目录必须含的两个文件
+DIAG_REQUIRED_FILES = ["完整性核对记录.md", "设计评审实测记录.md"]
+
+
+def check_diag_dir(diag_dir: str) -> list:
+    """校验诊断目录产物锁：完整性核对记录 + 设计评审实测记录 必须在"""
+    errors = []
+    if not os.path.isdir(diag_dir):
+        return [f"诊断目录不存在: {diag_dir}"]
+    for fname in DIAG_REQUIRED_FILES:
+        if not os.path.isfile(os.path.join(diag_dir, fname)):
+            errors.append(f"缺诊断产物: {fname}——完整性清单/设计评审没物化 = 诊断不合格（物理锁，不靠自觉）")
+    return errors
 
 
 def check_report(content: str) -> list:
@@ -94,10 +116,19 @@ def self_check() -> None:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("用法: check_rehab_report.py <履历文件> | --self", file=sys.stderr)
+        print("用法: check_rehab_report.py <履历文件> | --dir <诊断目录> | --self", file=sys.stderr)
         return 2
     if sys.argv[1] == "--self":
         self_check()
+        return 0
+    if sys.argv[1] == "--dir":
+        errors = check_diag_dir(sys.argv[2] if len(sys.argv) > 2 else ".")
+        if errors:
+            print("❌ 诊断产物锁校验失败：")
+            for e in errors:
+                print(f"  - {e}")
+            return 1
+        print("✅ 诊断产物锁通过：完整性核对记录 + 设计评审实测记录 均在")
         return 0
     try:
         with open(sys.argv[1], encoding='utf-8') as f:

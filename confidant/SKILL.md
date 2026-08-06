@@ -1,7 +1,7 @@
 ---
 name: confidant
 description: Confidant（知心伙伴）——给情绪已经影响到生活、又不愿意走进心理门诊的人，一个像朋友一样的倾听出口：温暖陪伴、有出处的科普与可练的方法、产出情绪画像（HTML 信息图），并内置危机识别与转介护栏。触发词：Confidant/知心伙伴/心理咨询/心理支持/情绪疏导/倾诉/焦虑/抑郁/失眠/心里堵得慌/情绪低落。NOT for：医疗诊断/治疗/危机急救。
-version: 1.0.0
+version: 1.0.1
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch
 compatibility: workbuddy
 tested-on: WorkBuddy 2026-08-05 安装验证（触发/危机转介/情绪画像三场景亲验通过）
@@ -285,8 +285,9 @@ confidant 是**偏心理咨询的陪伴代理**，不是树洞——核心动作
 |:---|:---|:---|
 | `scripts/check_safety.py` | 安全红线自检（热线/免责/禁区词/锚点/文件齐全）+ `report_template.html` 含热线与必需板块；`--output <画像文件>` 时校验交付画像无 `{{` 占位符残留 + 含热线/免责 | 退出码 0 = 红线全过；1 = 有失守 |
 | `scripts/check_rag.py` | 运行时 RAG 合规（机制内容须挂白名单出处） | 退出码 0 = 合规；1 = RAG 失守 |
+| `scripts/check_readiness.py` | 出画像就绪闸门（Gate1 说完了 + 深度模板判定） | 退出码 0 = 就绪（输出 conceptual/narrative）；1 = 未达「说完了」 |
 
-使用：交付前在 skill 根目录跑 `python3 scripts/check_safety.py`（退出码 0 才交付）；生成交付画像后跑 `python3 scripts/check_safety.py --output <画像文件>` 确认无占位符残留（退出码 0 才展示给用户）；每次出口机制/框架/干预内容前跑 `python3 scripts/check_rag.py <回复文本>` 自检（退出码 1 须补检索）。任何修改红线内容后必须重跑 check_safety。
+使用：交付前在 skill 根目录跑 `python3 scripts/check_safety.py`（退出码 0 才交付）；生成交付画像后跑 `python3 scripts/check_safety.py --output <画像文件>` 确认无占位符残留（退出码 0 才展示给用户）；每次出口机制/框架/干预内容前跑 `python3 scripts/check_rag.py <回复文本>` 自检（退出码 1 须补检索）；出画像前把对话历史写成临时文件跑 `python3 scripts/check_readiness.py <对话历史文件>` 判定模板——**对话历史文件格式必须为每行 `USER: 用户发言` / `AI: 助手发言`（前缀大写+英文冒号），否则脚本读不到对话，会误判「未说完了」**。任何修改红线内容后必须重跑 check_safety。
 
 **依赖声明**：本 skill 脚本需 **Python ≥ 3.8**（用 `python3` 运行；`check_safety.py` 额外依赖 `pathlib`，标准库自带，无需 pip 安装）。
 
@@ -305,3 +306,4 @@ confidant 是**偏心理咨询的陪伴代理**，不是树洞——核心动作
 | 0.9.0 | 2026-08-05 | §2 对话流程补「画像后闭环」显式步骤（产出画像 → 画像后闭环 → 风险重评），§2.4 中级别行与 §2.4 末段同步：出完画像给反应空间、可深聊某条洞见、可拆"今天就能做的一件"、情绪下沉当场重评；画像 HTML 改 full-bleed（body 白底 + .wrap 满铺 + .spine 限宽居中），report_template.html 与产出同步 |
 | 0.10.0 | 2026-08-05 | 二次 skill-rehab 康复（评估器 134/134 满分但完整性缺口）：①修 §2.3 编号冲突——「根因挖掘」2.3、「分级」2.4、「分级响应」2.5；②新增 §2.6 对话兜底（用户沉默/只说语气词/说「算了」/反复绕圈 → 重述优先、选项优先、接住优先，含示例话术表）；③check_safety.py 新增 `--output <画像>` 模式校验交付画像无 `{{` 占位符残留 + 含热线/免责（堵「占位符上屏」体验事故）；④report.md 版本记录补 v0.9.0、README 补 v0.9.0 说明与文件清单更新、behavior-convergence 测试补场景 E（画像后闭环+占位符残留拦截）；⑤§7.6 补依赖声明（Python ≥3.8） |
 | 1.0.0 | 2026-08-06 | 对话轴/安全轴正交互设计：①新增 §1.5 阶段角色轴 A/B/C/D（对话结束=出画像完成）；②§2.3 补四条发问前自检 + 深度层纪律（表层→模式层→根层不可跳）；③出画像触发改为「确认说完了→AI 主动提议（可拒）」，彻底删除轮次概念，对话唯一终点=引导出画像；④双模板（概念化版 + 新 report_narrative_template.html 叙事性回望版）按对话深度自动分层；⑤新增 check_readiness.py 三闸门（说完了/模式信号/客观优先）脚本写死深度判定；⑥check_safety.py 扩禁词（新增情绪否定式评判类禁语，如贬低/轻视类措辞，正文话术区零使用）+ 交付物措辞统一为「个案概念化 / 概念化梳理」（绝不使用医学判定类『报告』表述，全文件零出现）；⑦check_rag.py 加 --mode dialogue / --output；⑧状态条动态化（不再写死焦虑/睡眠/工作/希望，依个案维度生成）+ GAD-7 去专用化；⑨画像后闭环补「先接住知道根因的冲击」前置。版本跳 1.x（脱离实验期，首个稳定大版；第 11 轮迭代收敛）。 |
+| 1.0.1 | 2026-08-06 | 三次 skill-rehab 康复（v1.7.1 实测驱动诊断：2 期望型修复——①check_readiness.py 输入格式未声明：脚本只认 `USER:`/`AI:` 前缀，SKILL.md 无格式说明，AI 按中文自然写法喂会误判 Gate1「未说完了」→ §7.6 补格式说明（每行 `USER: 用户发言`/`AI: 助手发言`，前缀大写+英文冒号）②behavior 测试场景 E 命令误报：拿模板本体测占位符残留（模板含 `{{` 是设计使然，命令永远 fail 成摆设）→ 改为构造「AI 填了一半留占位符」的假交付画像测拦截（双向验证：留占位符 exit 1 / 全替换 exit 0）。回归：评估器 134/134 S 零降分。备份 /tmp/confidant-fix-backup/ |

@@ -17,7 +17,7 @@ if [ "$1" = "--self" ]; then
   pass() { echo "✅ $1"; }
   fail() { echo "❌ $1"; FAIL=$((FAIL+1)); }
   echo "===== goal-lint --self skill 本体体检 ====="
-  for f in "$SKILL_DIR/scripts/goal-lint.sh" "$SKILL_DIR/scripts/guard.sh" "$SKILL_DIR/scripts/coverage-check.sh" "$SKILL_DIR/scripts/stage-gate.sh" "$SKILL_DIR/scripts/pyramid-gen.py"; do
+  for f in "$SKILL_DIR/scripts/goal-lint.sh" "$SKILL_DIR/scripts/guard.sh" "$SKILL_DIR/scripts/coverage-check.sh" "$SKILL_DIR/scripts/stage-gate.sh" "$SKILL_DIR/scripts/pyramid-gen.py" "$SKILL_DIR/scripts/acceptance-check.sh"; do
     if [ -f "$f" ]; then pass "存在: ${f#$SKILL_DIR/}"; else fail "缺失: ${f#$SKILL_DIR/}"; fi
   done
   for f in "$SKILL_DIR/references/anatomy.md" "$SKILL_DIR/references/glossary.md" "$SKILL_DIR/references/style.md"; do
