@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
-skill_eval.py — Skill 质量评估脚本（v4.2.0 · 7 层架构 · P0/P1/P2 分级打分 · 134 分）
-================================================================================
+skill_eval.py — Skill 质量评估脚本（v5.0.0 · 7 层架构 · P0/P1/P2/info 分级打分 · 149 分）
+========================================================================================
+v5.0.0 融合（2026-08-06 A–K×7 层升级，用户拍板）：
+  · A–K 外部标准（Anthropic 官方 Agent Skills / 完整指南 / 最佳实践）融进现有 7 层，纯加法零删改
+  · 新增 21 检查项：11 计分（L1 两 P1×3 + L2/L3/L4/L5 共 9 P2×1 = +15 分）+ 10 info（L6×4 + L7×6）
+  · Kano 五型全映射：Basic→P0(5) / Performance→P1(3) / Excitement→P2(1) / Indifferent→info(0) / Reverse→严禁加
+  · L7 从注释转正式层（info 可见性层，0 分仅报告，治理/成熟度提示）
+  · 总分 134→149；机器 114+6+1+4+1+1=127 / 评审 20+2=22
+  · ⚠️ 实现要点：--self 权重白名单含 0；info 不进 issues/不挡 S；l3_skill_size 判据=references/ 目录真实存在
 v4.0.0 重构（2026-08-04 用户拍板）：
   · 从「拼凑的 10 原理」→「7 层系统性架构」：定位/触发/骨架/质量/安全/工程/生命周期
   · 打分原则：P0 基本型 5 分（必过）/ P1 期望型 3 分（建议）/ P2 兴奋型 1 分（可选）
@@ -12,11 +19,11 @@ v4.0.0 重构（2026-08-04 用户拍板）：
   · 删除项（元审查）：physical_anchor（关键词计数=表面功夫）/ no_binary_residual（文字洁癖）
   · 合并项：step_flow+steps → l3_step_flow；trigger_boundary+boundary → l2_negative_trigger；
     repeat_pattern+repeat_command → l4_instruction_consistency；fence_escape → l4_output_executability
-  · ⑦ 生命周期不进评估器（元流程，靠 completeness.md 引导）
+  · ⑦ 生命周期 v5.0.0 起转正式 L7（info 可见性层），见上
 
 死规矩 1：升级走版本管理——改前 `guard.sh snapshot` 冻结 / 改后 `--self` + 自举回归 / README 记版本号。
 """
-__version__ = "4.3.0"
+__version__ = "5.0.0"
 
 import os
 import re
@@ -37,8 +44,8 @@ DEFAULT_CORE_SKILLS = ["skill-rehab", "leader-translator", "second-brain"]
 LAYERS = {
     # ── ① 定位层 Positioning（16 分）· skill 身份与职责边界 ──
     "l1_positioning": {
-        "title": "①定位层（16 分）· 机制：skill 身份与职责边界",
-        "weight": 16,
+        "title": "①定位层（22 分）· 机制：skill 身份与职责边界",
+        "weight": 22,
         "items": {
             "l1_name_naming": {  # 3 机器 P1
                 "layer": "machine", "weight": 3,
@@ -56,12 +63,21 @@ LAYERS = {
                 "layer": "review", "weight": 3,
                 "title": "职责单一性（一个 skill 一件事，NOT for 排除相邻）",
             },
+            # ── v5.0.0 A–K 融合新增（A·Frontmatter）──
+            "l1_name_constraints": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "name 约束（kebab-case、≤64 字、无保留词 anthropic/claude、与文件夹同名）",
+            },
+            "l1_desc_format": {  # 3 机器 P1
+                "layer": "machine", "weight": 3,
+                "title": "description 格式（≤1024 字 + 无 XML 尖括号，防注入）",
+            },
         },
     },
-    # ── ② 触发层 Triggering（16 分）· 什么时候激活/不激活 ──
+    # ── ② 触发层 Triggering（17 分）· 什么时候激活/不激活 ──
     "l2_triggering": {
-        "title": "②触发层（16 分）· 机制：什么时候激活/不激活",
-        "weight": 16,
+        "title": "②触发层（17 分）· 机制：什么时候激活/不激活",
+        "weight": 17,
         "items": {
             "l2_trigger_phrases": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -83,12 +99,17 @@ LAYERS = {
                 "layer": "machine", "weight": 3,
                 "title": "触发实测（tests/ 含触发正/负用例）",
             },
+            # ── v5.0.0 A–K 融合新增（C·触发路由）──
+            "l2_trigger_test_coverage": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "触发测试三场景覆盖（明显/改写/不相关）",
+            },
         },
     },
-    # ── ③ 骨架层 Skeleton（24 分）· skill 结构六零件 ──
+    # ── ③ 骨架层 Skeleton（27 分）· skill 结构六零件 ──
     "l3_skeleton": {
-        "title": "③骨架层（27 分）· 机制：skill 结构六零件",
-        "weight": 27,
+        "title": "③骨架层（31 分）· 机制：skill 结构六零件",
+        "weight": 31,
         "items": {
             "l3_step_flow": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -126,12 +147,29 @@ LAYERS = {
                 "title": "确定性护栏（高违规代价操作有 hook 物理拦截或显式不挂理由）",
                 "patterns": [r"hook", r"PreToolUse", r"PostToolUse", r"UserPromptSubmit", r"物理拦截", r"显式留AI", r"settings\.json"],
             },
+            # ── v5.0.0 A–K 融合新增（B·渐进披露 / A·Frontmatter / E·代码脚本）──
+            "l3_skill_size": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "SKILL.md 尺寸（≤500 行；>500 须 references/ 目录真实存在）",
+            },
+            "l3_ref_nesting": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "references/ 嵌套深度（≤1 层，防二层链略读漏信息）",
+            },
+            "l3_compatibility_declared": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "compatibility 字段声明（frontmatter 存在且非空，声明攻击面）",
+            },
+            "l3_script_quality": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "脚本质量（无 Windows 路径 + 头部 usage 注释）",
+            },
         },
     },
-    # ── ④ 质量层 Quality（52 分）· 执行正确性核心 ──
+    # ── ④ 质量层 Quality（55 分）· 执行正确性核心 ──
     "l4_quality": {
-        "title": "④质量层（52 分）· 机制：执行正确性核心",
-        "weight": 52,
+        "title": "④质量层（55 分）· 机制：执行正确性核心",
+        "weight": 55,
         "items": {
             "l4_judgeable_acceptance": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -192,8 +230,8 @@ LAYERS = {
             },
             "l4_state_materialization": {  # 3 机器 P1
                 "layer": "machine", "weight": 3,
-                "title": "状态物化（PROGRESS/BLOCKED/.goal 落盘）",
-                "keywords": ["PROGRESS", "BLOCKED", "gate-", ".goal", "进度", "落盘", "写进", "保存", "续接", "接着做"],
+                "title": "状态物化（PROGRESS/BLOCKED/output/ 落盘）",
+                "keywords": ["PROGRESS", "BLOCKED", "gate-", "output/", "进度", "落盘", "写进", "保存", "续接", "接着做"],
                 "min": 2,
             },
             # ── v4.2.0 行为层维度（交接包 D1/D5）：产出载体 / 收敛终端 / 运行时行为校验 ──
@@ -213,12 +251,25 @@ LAYERS = {
                 "layer": "machine", "weight": 3,
                 "title": "运行时行为校验（行为约束有 scripts/check_*.py 且被引用，禁「留 AI 理由」兜底）",
             },
+            # ── v5.0.0 A–K 融合新增（D·指令质量）──
+            "l4_example": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "完整示例（≥1 个「输入→输出」示例段）",
+            },
+            "l4_terminology_consistency": {  # 1 评审 P2
+                "layer": "review", "weight": 1,
+                "title": "术语一致性（同概念不多种叫法，无关键词共现冲突）",
+            },
+            "l4_gotchas": {  # 1 评审 P2
+                "layer": "review", "weight": 1,
+                "title": "高语境坑点段（隐性规则显式化，如「温度口径铁规」「评估器满分≠完整」）",
+            },
         },
     },
-    # ── ⑤ 安全层 Safety（16 分）· 越权与危险操作防护 ──
+    # ── ⑤ 安全层 Safety（17 分）· 越权与危险操作防护 ──
     "l5_safety": {
-        "title": "⑤安全层（16 分）· 机制：越权与危险操作防护",
-        "weight": 16,
+        "title": "⑤安全层（17 分）· 机制：越权与危险操作防护",
+        "weight": 17,
         "items": {
             "l5_allowed_tools": {  # 5 机器 P0
                 "layer": "machine", "weight": 5,
@@ -241,6 +292,11 @@ LAYERS = {
                 "layer": "review", "weight": 3,
                 "title": "注入防护（外部输入与指令隔离声明）",
                 "patterns": [r"注入", r"injection", r"隔离", r"不当指令", r"信任边界", r"外部输入", r"当数据处理", r"当数据", r"分隔", r"不执行.*内容"],
+            },
+            # ── v5.0.0 A–K 融合新增（I·护栏安全）──
+            "l5_install_review": {  # 1 机器 P2
+                "layer": "machine", "weight": 1,
+                "title": "分发前安全审查（声明无意外依赖/外连，或显式列出）",
             },
         },
     },
@@ -267,12 +323,59 @@ LAYERS = {
                 "keywords": ["安装", "使用", "贡献", "文件清单", "目录表", "Installation", "Usage"],
                 "min": 3,
             },
+            # ── v5.0.0 A–K 融合新增（info：无差异型，报告呈现，永不扣分）──
+            "l6_license": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "license 字段（开源分发时声明）",
+            },
+            "l6_metadata": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "metadata(author/version) 元数据",
+            },
+            "l6_eval_count": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "评估用例数 ≥3",
+            },
+            "l6_design_eval_first": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "先建评估再设计（评估先行）",
+            },
         },
     },
-    # ⑦ 生命周期层：不进评估器（元流程，靠 completeness.md 引导）——见 references/completeness.md
+    # ── ⑦ 生命周期层 Lifecycle（info 可见性层）· 治理与成熟度提示 ──
+    "l7_lifecycle": {
+        "title": "⑦生命周期层（info 可见性层）· 机制：治理/成熟度提示（0 分，仅报告）",
+        "weight": 0,
+        "items": {
+            "l7_owner": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "owner 指定（负责人声明）",
+            },
+            "l7_last_updated": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "最后更新日期（frontmatter/变更记录可溯）",
+            },
+            "l7_deprecation": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "deprecated 淘汰机制（废弃流程显式声明）",
+            },
+            "l7_no_lowctx_dup": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "避免重复低语境知识（与其他 skill 的重复内容）",
+            },
+            "l7_cross_model_test": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "跨模型测试记录（Haiku/Sonnet/Opus；用户不在意 → 仅报告）",
+            },
+            "l7_compat_verification": {  # 0 机器 info
+                "layer": "machine", "weight": 0,
+                "title": "跨平台验证记录真实性（不伪造验证）",
+            },
+        },
+    },
 }
 
-TOTAL_EXPECTED = sum(LAYERS[l]["weight"] for l in LAYERS)  # 自然形成 134（机器 114 + 评审 20）
+TOTAL_EXPECTED = sum(LAYERS[l]["weight"] for l in LAYERS)  # 自然形成 149（机器 127 + 评审 22）
 PASS_P0_ALL = True  # 达标硬条件：P0 项全过
 PASS_LINE = 0.85  # 达标软条件：总分 ≥ 85%
 
@@ -374,7 +477,7 @@ def review_item(weight, default_passed, detail, evidence):
 # 7 层评估（机器层硬判 + 评审层证据收集）
 # ============================================================
 
-def ev_l1(content, skill_dir):
+def ev_l1(content, skill_dir, skill_name=None):
     """① 定位层"""
     res = {}
     it = LAYERS["l1_positioning"]["items"]
@@ -412,6 +515,27 @@ def ev_l1(content, skill_dir):
     res["l1_single_responsibility"] = review_item(it["l1_single_responsibility"]["weight"], default,
         "✅职责单一（description 聚焦一件事）" if default else "❌疑似多职责混杂（一个 skill 塞多件事）——需复核拆分",
         f"description: {desc[:80]}")
+
+    # ── v5.0.0 A–K 融合新增（A·Frontmatter）──
+    # l1_name_constraints（机器 P1）：保留词 ban + ≤64 + 与文件夹/skill 名同名（N6：同名比较用传入 skill_name，golden 样本目录名不参与）
+    reserved = ["anthropic", "claude"]
+    has_reserved = any(r in name.lower() for r in reserved)
+    too_long = len(name) > 64
+    folder_name = os.path.basename(skill_dir) if skill_dir else ""
+    same_name = name == (skill_name or folder_name)
+    name_cons_ok = bool(name) and not has_reserved and not too_long and same_name
+    name_cons_detail = (f"name '{name}' 保留词{'❌' if has_reserved else '✅'} 长度{len(name)}≤64{'✅' if not too_long else '❌'} "
+                        f"与目录名一致{'✅' if same_name else '❌'}")
+    res["l1_name_constraints"] = machine_item(it["l1_name_constraints"]["weight"], name_cons_ok,
+        name_cons_detail if name_cons_ok else f"❌{name_cons_detail}——保留词/超长/与目录不同名影响识别与分发")
+
+    # l1_desc_format（机器 P1）：≤1024 字 + 无 XML 尖括号（防注入）
+    desc_too_long = len(desc) > 1024
+    has_xml = bool(re.search(r'<[A-Za-z/][^>]{0,40}>', desc))
+    desc_fmt_ok = not desc_too_long and not has_xml
+    desc_fmt_detail = f"description {len(desc)}字≤1024{'✅' if not desc_too_long else '❌'} 无XML尖括号{'✅' if not has_xml else '❌'}"
+    res["l1_desc_format"] = machine_item(it["l1_desc_format"]["weight"], desc_fmt_ok,
+        desc_fmt_detail if desc_fmt_ok else f"❌{desc_fmt_detail}——超长挤爆触发匹配或 XML 注入风险")
     return res
 
 
@@ -454,6 +578,33 @@ def ev_l2(content, skill_dir):
     res["l2_trigger_testing"] = machine_item(it["l2_trigger_testing"]["weight"], has_trigger_tests,
         "✅有触发测试（tests/trigger-*.md）" if has_trigger_tests
         else "❌无触发测试集——触发行为靠猜，误触发/漏触发无人知")
+
+    # ── v5.0.0 A–K 融合新增（C·触发路由）──
+    # l2_trigger_test_coverage（机器 P2）：触发测试覆盖「明显/改写/不相关」三场景
+    cov_ok = False
+    cov_detail = "无 tests/trigger-* 用例"
+    if skill_dir:
+        tdir = os.path.join(skill_dir, 'tests')
+        if os.path.isdir(tdir):
+            trig_files = [f for f in os.listdir(tdir) if 'trigger' in f.lower()]
+            if trig_files:
+                all_text = ""
+                for f in trig_files:
+                    fp = os.path.join(tdir, f)
+                    if os.path.isfile(fp):
+                        try:
+                            with open(fp, 'r', encoding='utf-8') as fh:
+                                all_text += fh.read()
+                        except Exception:
+                            pass
+                has_obvious = bool(re.search(r'明显|直接|原样|正例|命中', all_text, re.I))
+                has_rewrite = bool(re.search(r'改写|同义|变形|换种|变体', all_text, re.I))
+                has_irrelevant = bool(re.search(r'不相关|无关|负例|不触发|negative', all_text, re.I))
+                cov_ok = has_obvious and has_rewrite and has_irrelevant
+                cov_detail = f"触发用例 {len(trig_files)} 个：明显{'✅' if has_obvious else '❌'} 改写{'✅' if has_rewrite else '❌'} 不相关{'✅' if has_irrelevant else '❌'}"
+    res["l2_trigger_test_coverage"] = machine_item(it["l2_trigger_test_coverage"]["weight"], cov_ok,
+        f"✅触发测试三场景覆盖：{cov_detail}" if cov_ok
+        else f"❌触发测试未覆盖三场景（明显/改写/不相关）——{cov_detail}")
     return res
 
 
@@ -532,6 +683,57 @@ def ev_l3(content, skill_dir):
     res["l3_deterministic_guardrail"] = review_item(it["l3_deterministic_guardrail"]["weight"], has_guard,
         f"确定性护栏{'✅' if has_guard else '❌'}（匹配: {guard_pat or '无'}）——高违规代价操作需 hook 物理拦截或显式留AI理由",
         f"匹配: {guard_pat if has_guard else '未找到'}")
+
+    # ── v5.0.0 A–K 融合新增（B·渐进披露 / A·Frontmatter / E·代码脚本）──
+    # l3_skill_size（机器 P2）：≤500 行；>500 须 references/ 目录真实存在（判据=文件系统事实，杜绝「声明≠存在」）
+    ref_dir = os.path.join(skill_dir, "references") if skill_dir else None
+    has_ref_dir = bool(ref_dir) and os.path.isdir(ref_dir)
+    size_ok = line_cnt <= 500 or has_ref_dir
+    res["l3_skill_size"] = machine_item(it["l3_skill_size"]["weight"], size_ok,
+        f"✅SKILL.md {line_cnt} 行≤500（或 >500 且 references/ 目录真实存在）" if size_ok
+        else f"❌SKILL.md {line_cnt} 行>500 且无 references/ 目录——细节全塞主文件，触发与上下文受损")
+
+    # l3_ref_nesting（机器 P2）：references/ 嵌套 ≤1 层
+    nest_depth = 0
+    if has_ref_dir:
+        for root, dirs, files in os.walk(ref_dir):
+            depth = root[len(ref_dir):].count(os.sep)
+            nest_depth = max(nest_depth, depth)
+    nest_ok = nest_depth <= 1
+    res["l3_ref_nesting"] = machine_item(it["l3_ref_nesting"]["weight"], nest_ok,
+        f"✅references/ 嵌套 {nest_depth} 层≤1" if nest_ok
+        else f"❌references/ 嵌套 {nest_depth} 层>1——二层链略读漏信息，应拍平到一层")
+
+    # l3_compatibility_declared（机器 P2）：frontmatter compatibility 存在且非空
+    comp = fm.get("compatibility", "")
+    comp_ok = bool(comp)
+    res["l3_compatibility_declared"] = machine_item(it["l3_compatibility_declared"]["weight"], comp_ok,
+        "✅compatibility 字段已声明（跨平台攻击面可见）" if comp_ok
+        else "❌frontmatter 无 compatibility 字段——跨平台攻击面未知")
+
+    # l3_script_quality（机器 P2）：scripts/ 脚本无 Windows 路径 + 头部 usage 注释
+    win_path = 0
+    no_usage = []
+    if has_dir:
+        for f in sorted(real_scripts):
+            if f.endswith(('.py', '.sh')):
+                fp = os.path.join(scripts_dir, f)
+                try:
+                    with open(fp, 'r', encoding='utf-8', errors='ignore') as fh:
+                        txt = fh.read()
+                except Exception:
+                    continue
+                if re.search(r'[A-Za-z]:\\[A-Za-z0-9_]{2,}', txt):  # 真 Windows 路径：盘符:\ + 路径段(≥2字符)；排除 \s \d 等单字符正则转义误报
+                    win_path += 1
+                if re.search(r'^\\\\[^\\\s]', txt, re.M):  # UNC 网络路径（\\server\share）
+                    win_path += 1
+                head = txt[:1500]
+                if not re.search(r'^(?:#|"""|\'\'\'|#!/)|usage|用法|用途', head, re.M | re.I):
+                    no_usage.append(f)
+    scrq_ok = win_path == 0 and not no_usage
+    res["l3_script_quality"] = machine_item(it["l3_script_quality"]["weight"], scrq_ok,
+        f"✅脚本无 Windows 路径 + 头部 usage 注释（共 {len(real_scripts)} 个脚本）" if scrq_ok
+        else f"❌脚本质量：Windows 路径 {win_path} 处 + 缺头部注释 {no_usage}")
     return res
 
 
@@ -676,6 +878,25 @@ def ev_l4(content, skill_dir):
     res["l4_runtime_check"] = machine_item(it["l4_runtime_check"]["weight"], rt_ok,
         f"运行时校验脚本 {len(rt_checks)} 个（{', '.join(rt_checks) if rt_checks else '无'}）" if rt_ok
         else "❌无运行时校验脚本（scripts/ 含校验语义的 .py/.sh，如 check_*.py / stage-gate.sh / acceptance-check.sh）——「必须 X 才 Y」类行为规则留 AI 自觉，违背「模型自判必自欺」确定性原则")
+
+    # ── v5.0.0 A–K 融合新增（D·指令质量）──
+    # l4_example（机器 P2）：≥1 完整「输入→输出」示例段（用 body 排除 frontmatter 误命中）
+    ex_cnt = count_keyword(body, ["示例", "Example", "例子", "例如", "输入→输出", "输出示例", "示例输出"])
+    ex_ok = ex_cnt >= 1
+    res["l4_example"] = machine_item(it["l4_example"]["weight"], ex_ok,
+        f"✅示例段 {ex_cnt} 处（≥1 完整输入→输出示例）" if ex_ok
+        else "❌无完整示例段——模型只能凭空演绎，输出样式靠猜")
+
+    # l4_terminology_consistency（评审 P2）：术语一致性（机器启发式难可靠判定，人工复核）
+    res["l4_terminology_consistency"] = review_item(it["l4_terminology_consistency"]["weight"], True,
+        "✅（默认过）需复核：同概念是否多种叫法（术语一致性）",
+        "机器启发式难可靠判定，交人工/子 Agent 语义复核")
+
+    # l4_gotchas（评审 P2）：高语境坑点段（隐性规则显式化）
+    has_gotcha = bool(re.search(r'坑点|注意|Gotcha|陷阱|踩坑|反直觉|隐性规则', content))
+    res["l4_gotchas"] = review_item(it["l4_gotchas"]["weight"], has_gotcha,
+        f"高语境坑点段{'✅' if has_gotcha else '❌'}（匹配坑点/注意/Gotcha 类）——隐性规则显式化",
+        f"匹配: {'含坑点提示' if has_gotcha else '未找到'}")
     return res
 
 
@@ -712,6 +933,13 @@ def ev_l5(content, skill_dir):
     res["l5_injection_guard"] = review_item(it["l5_injection_guard"]["weight"], has_inj,
         f"注入防护{'✅' if has_inj else '❌'}（匹配: {inj_pat or '无'}）——外部输入与指令隔离声明",
         f"匹配: {inj_pat if has_inj else '未找到'}")
+
+    # ── v5.0.0 A–K 融合新增（I·护栏安全）──
+    # l5_install_review（机器 P2）：分发前安全审查声明（无意外依赖/外连，或显式列出）
+    has_ir, ir_pat = check_pattern(content, [r"安全审查", r"安装审查", r"依赖清单", r"外连", r"install.{0,20}review", r"审计", r"无外部依赖", r"纯标准库", r"零依赖"])
+    res["l5_install_review"] = machine_item(it["l5_install_review"]["weight"], has_ir,
+        "✅有分发安全审查声明（依赖/外连显式）" if has_ir
+        else "❌无安装安全审查声明——分发后依赖/外连不可预期")
     return res
 
 
@@ -748,6 +976,60 @@ def ev_l6(content, skill_dir):
     res["l6_documentation"] = machine_item(it["l6_documentation"]["weight"], doc_ok,
         "✅有 README.md（文档化）" if doc_ok
         else "❌无 README.md——分享出去别人装不上/用不了")
+
+    # ── v5.0.0 A–K 融合新增（info：无差异型，报告呈现，永不扣分）──
+    # l6_license（info）
+    res["l6_license"] = machine_item(it["l6_license"]["weight"], 'license' in fm,
+        f"license 字段{'✅' if 'license' in fm else '❌未声明'}（开源分发时建议）")
+    # l6_metadata（info）
+    has_meta = bool(fm.get("metadata", "") or fm.get("author", ""))
+    res["l6_metadata"] = machine_item(it["l6_metadata"]["weight"], has_meta,
+        f"metadata/author 元数据{'✅' if has_meta else '❌未声明'}")
+    # l6_eval_count（info）：tests/ 用例数 ≥3
+    eval_cnt = 0
+    if skill_dir:
+        tdir = os.path.join(skill_dir, 'tests')
+        if os.path.isdir(tdir):
+            eval_cnt = sum(1 for f in os.listdir(tdir) if os.path.isfile(os.path.join(tdir, f)))
+    res["l6_eval_count"] = machine_item(it["l6_eval_count"]["weight"], eval_cnt >= 3,
+        f"评估用例 {eval_cnt} 个（≥3 建议）")
+    # l6_design_eval_first（info）
+    has_eval_first = bool(re.search(r'评估先行|先建评估|test[- ]first|先写(?:评估|测试)', content))
+    res["l6_design_eval_first"] = machine_item(it["l6_design_eval_first"]["weight"], has_eval_first,
+        f"评估先行{'✅' if has_eval_first else '❌未声明'}（先建评估再设计）")
+    return res
+
+
+def ev_l7(content, skill_dir):
+    """⑦ 生命周期层（info 可见性层：治理/成熟度提示，0 分仅报告）"""
+    res = {}
+    it = LAYERS["l7_lifecycle"]["items"]
+    fm = parse_yaml_frontmatter(content)
+    # l7_owner（info）
+    owner_v = fm.get("owner", "")
+    owner_ok = bool(owner_v or re.search(r'owner[:：]|负责人[:：]', content))
+    res["l7_owner"] = machine_item(it["l7_owner"]["weight"], owner_ok,
+        f"owner 指定{'✅' if owner_ok else '❌未指定'}（负责人声明）")
+    # l7_last_updated（info）
+    last_upd = fm.get("last_updated", "") or fm.get("updated", "")
+    upd_ok = bool(last_upd or re.search(r'20\d{2}-\d{2}-\d{2}', content))
+    res["l7_last_updated"] = machine_item(it["l7_last_updated"]["weight"], upd_ok,
+        f"最后更新日期{'✅' if upd_ok else '❌不可溯'}（frontmatter/变更记录）")
+    # l7_deprecation（info）
+    has_dep = bool(re.search(r'deprecated|已废弃|废弃|淘汰|不再维护', content))
+    res["l7_deprecation"] = machine_item(it["l7_deprecation"]["weight"], has_dep,
+        f"deprecated 淘汰机制{'✅' if has_dep else '❌未声明'}（废弃流程显式）")
+    # l7_no_lowctx_dup（info）：机器难全自动判，默认提示人工核查
+    res["l7_no_lowctx_dup"] = machine_item(it["l7_no_lowctx_dup"]["weight"], True,
+        "📌需人工核查：与其他 skill 是否有重复低语境知识（机器难全自动判）")
+    # l7_cross_model_test（info）：用户明确不在意 → 仅报告
+    has_xm = bool(re.search(r'Haiku|Sonnet|Opus|跨模型', content))
+    res["l7_cross_model_test"] = machine_item(it["l7_cross_model_test"]["weight"], has_xm,
+        f"跨模型测试记录{'✅' if has_xm else '❌未记录'}（用户不在意 → 仅报告）")
+    # l7_compat_verification（info）
+    has_cv = bool(re.search(r'验证记录|实测平台|Tested on|平台验证', content))
+    res["l7_compat_verification"] = machine_item(it["l7_compat_verification"]["weight"], has_cv,
+        f"跨平台验证记录{'✅' if has_cv else '❌无记录'}（不伪造验证）")
     return res
 
 
@@ -772,12 +1054,13 @@ def evaluate_skill(skill_name, skill_path):
     result["line_count"] = content.count('\n') + 1
     skill_dir = os.path.dirname(skill_path)
 
-    result["layers"]["l1_positioning"] = ev_l1(content, skill_dir)
+    result["layers"]["l1_positioning"] = ev_l1(content, skill_dir, skill_name)
     result["layers"]["l2_triggering"] = ev_l2(content, skill_dir)
     result["layers"]["l3_skeleton"] = ev_l3(content, skill_dir)
     result["layers"]["l4_quality"] = ev_l4(content, skill_dir)
     result["layers"]["l5_safety"] = ev_l5(content, skill_dir)
     result["layers"]["l6_engineering"] = ev_l6(content, skill_dir)
+    result["layers"]["l7_lifecycle"] = ev_l7(content, skill_dir)
 
     # 汇总：机器层 + 评审层（默认判定计入，报告标注需复核）
     for ln, layer in result["layers"].items():
@@ -793,7 +1076,8 @@ def evaluate_skill(skill_name, skill_path):
                     "detail": it["detail"], "evidence": it.get("evidence", ""),
                     "default": "✅ 过" if it["passed"] else "❌ 不过",
                 })
-            if not it["passed"]:
+            # N3（v5.0.0）：info 项（max=0）不过不进未过项、不扣分——永不挡 S
+            if not it["passed"] and it["max"] > 0:
                 result["issues"].append(f"[{ln}.{itn}] {it['detail']}")
                 if it["max"] == 5:  # P0
                     result["p0_failed"].append(f"{ln}.{itn}")
@@ -863,13 +1147,14 @@ def generate_report(results):
         "l4_quality": "④质量",
         "l5_safety": "⑤安全",
         "l6_engineering": "⑥工程",
+        "l7_lifecycle": "⑦生命",
     }
     header_cols = " | ".join(f"{v}/{LAYERS[k]['weight']}" for k, v in layer_names.items())
-    report = f"""# Skill 质量评估报告（v4.0.0 · 7 层架构 · P0/P1/P2 分级打分 · {TOTAL_EXPECTED} 分）
+    report = f"""# Skill 质量评估报告（v{__version__} · 7 层架构 · P0/P1/P2/info 分级打分 · {TOTAL_EXPECTED} 分）
 
 > **生成时间**: {now} | **评估范围**: {len(results)} 个 Skill
-> **评估标准**: 7 层架构（①定位16 ②触发16 ③骨架27 ④质量52 ⑤安全16 ⑥工程7）——⑦生命周期不进评估器（元流程，completeness.md 引导）
-> **打分原则**: P0 基本型 5 分（必过）/ P1 期望型 3 分（建议）/ P2 兴奋型 1 分（可选）；层权重 = 项之和（自然形成，不凑分）
+> **评估标准**: 7 层架构（①定位22 ②触发17 ③骨架31 ④质量55 ⑤安全17 ⑥工程7 ⑦生命周期0/info）——L7 为 info 可见性层（治理/成熟度提示，不计分）
+> **打分原则**: P0 必改 5 分（必过）/ P1 建议 3 分 / P2 备选 1 分（可选）/ info 跳过 0 分（报告呈现，永不扣分）；层权重 = 项之和（自然形成，不凑分）
 > **达标条件**: P0 项全过（硬性）+ 总分 ≥ {int(PASS_LINE*100)}%（软性）
 > **双层评估**: 机器层硬判（可正则判）+ 评审层（🟡 需人工/子 Agent 按证据复核）
 > **⚠️ 边界声明**: 本报告是「必要条件闸门」判定（有无类检查），未过项=已知硬伤；**未过项 ≠ 全部问题**——完整性缺口由 references/completeness.md 兜底，**评估器满分 ≠ skill 全好**
@@ -905,9 +1190,9 @@ def generate_report(results):
         report += "| 检查项 | 层 | 级别 | 状态 | 得分 | 详情 |\n|:-------|:--:|:--:|:----:|:----:|:-----|\n"
         for ln, layer in r["layers"].items():
             for itn, it in layer.items():
-                st = "✅" if it["passed"] else "❌"
+                st = "📌" if it["max"] == 0 else ("✅" if it["passed"] else "❌")
                 layer_tag = "机器" if it["layer"] == "machine" else "🟡评审"
-                lv = "P0" if it["max"] == 5 else ("P1" if it["max"] == 3 else "P2")
+                lv = "info" if it["max"] == 0 else ("P0" if it["max"] == 5 else ("P1" if it["max"] == 3 else "P2"))
                 report += f"| {LAYERS[ln]['items'][itn]['title']} | {layer_tag} | {lv} | {st} | {it['score']}/{it['max']} | {it['detail']} |\n"
         if r.get("issues"):
             report += "\n**⚠️ 未过项**:\n" + "\n".join(f"- {i}" for i in r["issues"]) + "\n"
@@ -937,11 +1222,11 @@ def generate_report(results):
         report += f"\n**⚠️ 纯 AI 自觉警示**: {'、'.join(rc.get('warnings', []))}\n\n"
     report += """## 方法论
 
-- **7 层架构**: 定位（身份）/触发（激活）/骨架（结构六零件）/质量（执行正确性）/安全（越权防护）/工程（可维护性）/生命周期（元流程不进评估器）
+- **7 层架构**: 定位（身份）/触发（激活）/骨架（结构六零件）/质量（执行正确性）/安全（越权防护）/工程（可维护性）/生命周期（info 可见性层：治理与成熟度提示）
 - **依据**: 每检查项对应行业依据（Anthropic 官方 / trailofbits / SkVM·SkCC / Prompt Failure Mode Atlas），名称与行业一致
-- **分级打分**: P0（不修会坏，5 分必过）/P1（修了线性提升，3 分）/P2（锦上添花，1 分）——层权重 = 项之和，不凑分
+- **分级打分**: P0（不修会坏，5 分必过）/P1（修了线性提升，3 分）/P2（锦上添花，1 分）/info（跳过，0 分报告呈现，永不扣分、永不挡 S）——层权重 = 项之和，不凑分
 - **双层评估**: 机器层硬判（0 误判）+ 评审层（脚本收集证据，人工/子 Agent 语义复核）——确定性转移原理的自反应用
-- **局限性**: 评审层默认判定是关键词启发式，必须以人工/子 Agent 复核为准；⑦生命周期是设计时的元流程，单次静态评估判不了
+- **局限性**: 评审层默认判定是关键词启发式，必须以人工/子 Agent 复核为准；L7 为 info 可见性层不参与评分，治理项仅作提示；评估器满分 ≠ skill 全好（completeness.md 兜底完整性）
 """
     return report
 
@@ -954,7 +1239,7 @@ def self_check():
     print(f"===== skill_eval.py（v{__version__} · 7 层架构 · P0/P1/P2 分级）--self 自检 =====")
     ok = True
     total = sum(LAYERS[l]["weight"] for l in LAYERS)
-    print(f"✅ 7 层配置齐全（{len(LAYERS)} 层进评估器，⑦生命周期除外）")
+    print(f"✅ {len(LAYERS)} 层全进评估器（L7 为 info 可见性层，0 分）")
     if total != TOTAL_EXPECTED:
         print(f"❌ 层总分 {total} ≠ TOTAL_EXPECTED {TOTAL_EXPECTED}")
         ok = False
@@ -970,11 +1255,11 @@ def self_check():
         if sum(it["weight"] for it in l["items"].values()) != l["weight"]:
             print(f"❌ {lname} 层 weight {l['weight']} ≠ item 之和")
             ok = False
-    # P0/P1/P2 分级自洽：5/3/1
+    # P0/P1/P2/info 分级自洽：5/3/1/0（N1：info 项权重 0 必须进白名单，否则 --self 必挂）
     for lname, l in LAYERS.items():
         for itn, it in l["items"].items():
-            if it["weight"] not in (5, 3, 1):
-                print(f"❌ {lname}.{itn} weight {it['weight']} 非 P0/P1/P2（应 5/3/1）")
+            if it["weight"] not in (0, 1, 3, 5):
+                print(f"❌ {lname}.{itn} weight {it['weight']} 非 P0/P1/P2/info（应 5/3/1/0）")
                 ok = False
     machine_total = sum(it["weight"] for l in LAYERS.values() for it in l["items"].values() if it["layer"] == "machine")
     review_total = sum(it["weight"] for l in LAYERS.values() for it in l["items"].values() if it["layer"] == "review")
@@ -991,9 +1276,9 @@ def self_check():
 # ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Skill 质量评估 v4（7 层架构 · P0/P1/P2 分级打分）")
+    parser = argparse.ArgumentParser(description="Skill 质量评估 v5（7 层架构 · P0/P1/P2/info 分级打分）")
     parser.add_argument("--base", "-b", default=DEFAULT_SKILL_BASE, help="技能配置文件目录")
-    parser.add_argument("--output", "-o", default=".", help="报告输出目录")
+    parser.add_argument("--output", "-o", default=None, help="报告输出目录（相对路径，站在当前工作区跑；产物只进工作区 output/。未指定=只打印不落盘）")
     parser.add_argument("--skills", "-s", default=",".join(DEFAULT_CORE_SKILLS), help="技能列表（逗号分隔）")
     parser.add_argument("--self", action="store_true", help="体检本脚本")
     args = parser.parse_args()
@@ -1001,6 +1286,10 @@ def main():
     if args.self:
         sys.exit(self_check())
 
+    # v1.8.3：产物只进工作区。未指定 --output = 只打印评估结果，不落盘（零报错，物理杜绝落错 skill 目录）
+    no_output = args.output is None
+    if no_output:
+        args.output = "."  # 占位，仅打印用，不写文件
     os.makedirs(args.output, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     print("=" * 60)
@@ -1023,6 +1312,12 @@ def main():
             print(f"  ⚠️ {issue}")
 
     report = generate_report(results)
+    if no_output:
+        # 未指定 --output：只打印，不落盘（产物只进工作区；要写报告请带 --output <工作区>/output/...）
+        print("\nℹ️ 未指定 --output，本次不写报告文件（产物只进工作区）。")
+        print("   如需落盘：站在当前工作区跑，加 --output output/<子目录>（相对路径）")
+        return
+
     report_path = os.path.join(args.output, f"Skill质量评估报告_7层架构_{timestamp}.md")
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report)

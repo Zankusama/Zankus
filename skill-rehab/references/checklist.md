@@ -12,7 +12,7 @@
 | # | 检查项 | 怎么查 | 判定标准 |
 |:--:|:---|:---|:---|
 | S1 | **frontmatter 合规** | 读 SKILL.md 头部；`head -5 SKILL.md` | `name` / `description` / `version` 三字段齐，description 含触发词且含 NOT for 边界 |
-| S2 | **行数 <500** | `wc -l SKILL.md` | ≤500；超了把参考性内容拆进 `references/`，SKILL.md 留决策骨架（同时触发 mechanism.md ⑦特例：p7.references_extruded 升基本型） |
+| S2 | **行数 <500** | `wc -l SKILL.md` | ≤500；超了把参考性内容拆进 `references/`，SKILL.md 留决策骨架（同时触发 mechanism.md ⑦特例：p7.references_extruded 升必改） |
 | S3 | **触发实测** | 构造三类请求实测（见下「运行时实测」第 2 项） | 该触发→触发；边界内→触发；范围外→明确拒绝/指引去处 |
 | S4 | **依赖声明** | 读 README 或文件头 | 脚本语言/版本/第三方包/外部命令全部声明；无声明=不过 |
 
@@ -43,7 +43,7 @@
 
 ## 三、运行时实测 5 项（真跑一遍，不是读文档）
 
-> 实测记录写进本次康复的 `.goal/` 工作记录（如 `trigger-test.md` / 履历「实测」列），附命令与输出。
+> 实测记录写进本次康复的 `output/skill-rehab/` 工作记录（如 `trigger-test.md` / 履历「实测」列），附命令与输出。
 
 | # | 实测项 | 怎么做 | 判定标准 |
 |:--:|:---|:---|:---|

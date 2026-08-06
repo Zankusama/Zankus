@@ -89,21 +89,21 @@ for w in "暗卷" "探索型" "执行型" "来找我"; do
 done
 
 # 4. 产物路径检查（三条禁令 + 修复原「无产物引用直接 pass」漏检）
-#    触发：任务书有【界限】/【工作产物放哪】/【现状与任务 0】/【完成条件】任一节→应有 .goal/ 声明
-PROD_LINES=$(printf '%s\n' "$CONTENT" | grep -E "PROGRESS\.md|BLOCKED\.md|\.bak|\.goal")
+#    触发：任务书有【界限】/【工作产物放哪】/【现状与任务 0】/【完成条件】任一节→应有 output/ 声明（.goal 旧约定已废弃，2026-08-06 全量迁移后只收 output/）
+PROD_LINES=$(printf '%s\n' "$CONTENT" | grep -E "PROGRESS\.md|BLOCKED\.md|\.bak|output/")
 if [ -z "$PROD_LINES" ]; then
   # 检查是否含可能产生产物的节
   if printf '%s' "$CONTENT" | grep -qE "【工作产物放哪】|【界限】|【现状与任务 0】"; then
-    fail "应有产物声明但全文无 .goal/ 引用（【工作产物放哪】/【界限】/【现状与任务 0】三节要求声明产物路径）"
+    fail "应有产物声明但全文无 output/ 引用（【工作产物放哪】/【界限】/【现状与任务 0】三节要求声明产物路径）"
   else
     pass "无产物引用（本任务书不产生工作产物）"
   fi
 else
   # 4a. 禁裸名：产物行不含 "/"（如 "PROGRESS.md"）= 违规
   if printf '%s\n' "$PROD_LINES" | grep -v "/" | grep -qE "PROGRESS\.md|BLOCKED\.md|\.bak"; then
-    fail "产物裸文件名（缺路径前缀）——产物一律写 .goal/xxx 或绝对路径，禁止裸名 PROGRESS.md/BLOCKED.md"
+    fail "产物裸文件名（缺路径前缀）——产物一律写 output/xxx 或绝对路径，禁止裸名 PROGRESS.md/BLOCKED.md"
   else
-    pass "产物均带路径前缀（.goal/ 或绝对路径）"
+    pass "产物均带路径前缀（output/ 或绝对路径）"
   fi
   # 4b. 禁指 skill 本体目录
   if printf '%s\n' "$PROD_LINES" | grep -qE "skills/|技能配置|AI记忆库"; then
@@ -113,7 +113,7 @@ else
   fi
   # 4c. 禁预埋用户绝对路径（/Users/、/home/、C:\ 等）
   if printf '%s\n' "$PROD_LINES" | grep -qE "/Users/[a-zA-Z]|/home/[a-zA-Z]|C:\\\\\\\\[Uu]sers"; then
-    fail "产物路径预埋使用者绝对路径（/Users/xxx /home/xxx C:\\Users\\xxx）——违反「不预埋任何使用者机器路径」原则，应改用 .goal/ 相对路径或 <工作区>/.goal/ 占位"
+    fail "产物路径预埋使用者绝对路径（/Users/xxx /home/xxx C:\\Users\\xxx）——违反「不预埋任何使用者机器路径」原则，应改用 output/ 相对路径或 <工作区>/output/ 占位"
   else
     pass "产物路径未预埋使用者绝对路径"
   fi

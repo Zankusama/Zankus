@@ -32,6 +32,42 @@ WHITELIST = [
 ]
 
 
+def _judge(text, mode="default"):
+    """核心判定（与 main 同逻辑），返回 (ok: bool, msg: str)"""
+    hits = [k for k in MECH_KEYWORDS if k in text]
+    if not hits:
+        return True, f"未检出机制内容（命中 0）"
+    has_wl = any(w.lower() in text.lower() for w in WHITELIST)
+    if mode == "dialogue":
+        PSEUDO = ["研究表明", "根据研究", "数据显示", "有论文说"]
+        pseudo = [p for p in PSEUDO if p in text and not has_wl]
+        if pseudo:
+            return False, f"对话模式伪引用 {pseudo} 无白名单"
+        return True, "对话模式机制已内化"
+    if has_wl:
+        return True, f"命中机制 {len(hits)} 个已挂白名单"
+    return False, f"命中机制 {len(hits)} 个无白名单出处"
+
+
+def selftest():
+    """脚本自检：3 用例（纯共情过 / 机制无出处拦 / 机制有出处过 + dialogue 伪引用拦）"""
+    cases = [
+        ("T1 纯共情不涉机制 → 过", "听起来那阵子挺难熬的，你愿意多说两句吗", "default", True),
+        ("T2 机制无出处 → 拦", "焦虑会激活杏仁核，导致早醒", "default", False),
+        ("T3 机制有白名单出处 → 过", "焦虑早醒与皮质醇相关（来源：who.int 公开材料）", "default", True),
+        ("T4 dialogue 伪引用无出处 → 拦", "研究表明焦虑的人睡眠质量更差", "dialogue", False),
+    ]
+    passed = 0
+    for name, text, mode, expect in cases:
+        ok, msg = _judge(text, mode)
+        mark = "PASS" if ok == expect else "FAIL"
+        if ok == expect:
+            passed += 1
+        print(f"  [{mark}] {name} → {msg}（期望 {'过' if expect else '拦'}，实际 {'过' if ok else '拦'}）")
+    print(f"selftest: {passed}/{len(cases)} 过")
+    sys.exit(0 if passed == len(cases) else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("file", nargs="?", default="-", help="回复文本文件，'-' 表示读 stdin")
@@ -39,7 +75,12 @@ def main():
                     help="default=交付/正式出口需挂白名单；dialogue=对话内化不外露+伪引用拦截")
     ap.add_argument("--output", metavar="FILE",
                     help="校验交付画像（严：占位符残留拦截 + 机制须挂白名单出处）")
+    ap.add_argument("--selftest", action="store_true", help="脚本自检（3 用例）")
     args = ap.parse_args()
+
+    if args.selftest:
+        selftest()
+        return
 
     text = Path(args.file).read_text(encoding="utf-8") if args.file != "-" else sys.stdin.read()
 

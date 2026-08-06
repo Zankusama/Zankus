@@ -68,15 +68,15 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 - **② 充分性审查·结构——类别完整性清单**（`references/completeness.md`）：按 skill 类别穷尽「这类该有的」，逐项核对——评估器没点名的项，这里也不许跳过。
 - **③ 充分性审查·方向——设计评审**（`references/design-review.md`，v1.7.0 新增 / v1.7.1 改实测驱动）：查「跑起来对不对」——**拿真实任务完整跑一遍**（AI 当执行者走全流程），从"跑的过程（跳过/卡住）+ 最终产出（对得上承诺吗）"挑毛病，每条毛病给可执行建议。**核心原则：问题只信跑出来的，不信读出来的**——静态读文件找不出问题，人自己做的 skill 没完整跑过也看不出问题。流程稳但方向错=稳定地做错事，这一源补的就是这个盲区。
 
-三源都过才算「诊断合格」；处方（`references/mechanism.md`）把三源缺口合并后按 Kano 五类分级（基本型必改 / 期望型建议 / 兴奋型备选 / 无差异跳过 / 反向红线），按机制给修法，不按格式给——不同风格 skill 不会被修成同一模子。
+三源都过才算「诊断合格」；处方（`references/mechanism.md`）把三源缺口合并后按分级四档（必改 / 建议 / 备选 / 跳过），按机制给修法，不按格式给——不同风格 skill 不会被修成同一模子。
 
 ### 3. 五步流程速览
 
 | 步骤 | 做什么 | 关键产出 |
 |:---|:---|:---|
 | ① 诊断 | 跑评估器（闸门）+ 完整性清单（结构充分性）+ 设计评审（方向充分性） | 总分 + 未过项 + 缺口 + 方向发现 |
-| ② 处方 | 未过项查 `references/mechanism.md`，按 Kano 五类分级 | 分级修复清单 |
-| ③ 治疗 | 只修基本型（防镀金，死规矩 9），修一验一 | 每项 diff |
+| ② 处方 | 未过项查 `references/mechanism.md`，按分级四档（必改/建议/备选/跳过）分级 | 分级修复清单 |
+| ③ 治疗 | 只修必改（防镀金，死规矩 9），处方先确认再治疗（死规矩 10），修一验一 | 每项 diff |
 | ④ 复查 | 全量重跑评估器（分 ≥ 修复前）+ 完整性清单缺口清零 + 设计评审确认 | 三源复查结论 |
 | ⑤ 交付 | 修复 diff + 修复履历（为什么修 → 对应机制） | 可交付报告 |
 
@@ -94,9 +94,9 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ### 内置评估器
 
-- 版本：`scripts/skill_eval.py`（`__version__ = "4.2.0"`）；7 层架构 · P0 基本型 5 分/P1 期望型 3 分/P2 兴奋型 1 分 · 总分 134（机器 114 + 评审 20）
-- 自检：`python3 scripts/skill_eval.py --self` 全过（层 weight = item 之和 / P0 项 14 个）
-- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 56 样本）——评估器升级必过，防「越改越瞎」
+- 版本：`scripts/skill_eval.py`（`__version__ = "5.0.0"`）；7 层架构 · P0 必改 5 分/P1 建议 3 分/P2 备选 1 分/info 跳过 0 分（报告呈现永不扣分）· 总分 149（机器 127 + 评审 22）
+- 自检：`python3 scripts/skill_eval.py --self` 全过（层 weight = item 之和 / P0 项 14 个 / 检查项 57 个）
+- goldens 回归集：`python3 scripts/run_goldens.py`（tests/golden/ 58 样本 62 断言）——评估器升级必过，防「越改越瞎」
 - 判卷完整性：`./scripts/guard.sh verify`（评估器 sha256 冻结核对）+ `./scripts/guard.sh check`（--self + goldens 全过）
 
 ### 评估器版本管理流程（v3 起）
@@ -117,6 +117,7 @@ python3 scripts/skill_eval.py --base <技能目录> --skills <skill名> --output
 
 ## 变更记录
 
+- **v1.7.0（2026-08-06）**：A–K 外部标准 × 7 层融合（评估器 v4.3.0→v5.0.0）：新增 21 检查项（11 计分 +15 分 / 10 info 0 分），Kano 五型全映射（info=无差异型，报告呈现永不扣分；Reverse=设计过滤器不设检查项），L7 从注释转正式 info 可见性层，总分 134→149（机器 127 + 评审 22）；mechanism.md Kano 表补 info 档、死规矩 9 补无差异型语义；goldens 断言 62 项全过不破坏（按 item 断言非总分）。
 - **v1.6.0（2026-08-05）**：流程缺陷修复（交接包 D1-D5 全落地，Kano 分级+稳定优先）：修 fixapply.sh KeyError + fixgen.py 正则失配；口径统一（总分 125→134，等级阈值对齐代码）；验收锚点升级（判定词+脚本存在双条件）；行为层 3 新检查项（产出载体/收敛终端/运行时行为校验）；诊断报告增「运行时行为合规」章节；行为测试规范（tests/behavior-*.md + 真实演练可选人工复核）；goldens 56→62 断言；评估器 v4.1.0→v4.2.0。
 - **v1.5.0（2026-08-05）**：路径可移植性（本次踩坑根因）：评估器③骨架层加 l3_path_portability（P1/3分，判裸相对脚本调用须显式声明路径策略）+ run_runtime_tests.py 加 R5 异地执行探测（真跑非文本判，退出码≠127/2）+ checklist 运行时实测 4→5 项 + 新增 golden 样本 g55_path_fail（锁死回归）+ 评估器 v4.0.0→v4.1.0（总分 122→125）。
 - **v1.2.0（2026-08-03）**：双源流程成文（必要条件闸门 + 完整性清单充分性审查）+ goldens 回归集落地 + scriptized 收紧；README 重构为陌生人向四段（首屏/安装/使用/贡献）。

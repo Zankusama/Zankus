@@ -1,0 +1,9 @@
+# Python 运行时缓存（解释器自动生成，非产物）
+__pycache__/
+*.pyc
+
+# macOS 自动生成
+.DS_Store
+
+# guard 版本管理本地基线快照（不进仓库，恢复脚本本地生成）
+scripts/.snapshots/

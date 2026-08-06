@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # stage-gate.sh — 六道闸门（每步产出物校验，防跳步）｜编号 G1-G6，与流程步骤编号 1-7 区分（G=Gate 非步骤）
 # 用法: stage-gate.sh <step> [file]
-#   step=1  G1 定义   理清目标后：file=.goal/gate-1.txt（五层面答案，每行一层，共 5 行，缺=未清晰）
-#   step=2  G2 调研完 调研后：    file=.goal/gate-2.txt（调研记录：查不到的必须标「假设，未验证」）
-#   step=3  G3 补盲   盲点扫描后：file=.goal/gate-3.txt（补盲清单：必须含 ≥1 条 💡 主轴项）
-#   step=4  G4 分类   提问后：    file=.goal/gate-4.txt（提问记录：必含「目前我听懂了的」小结 + 内部常识轮 + KANO 分类声明；⚠️ 项=0）
+#   step=1  G1 定义   理清目标后：file=output/gate-1.txt（五层面答案，每行一层，共 5 行，缺=未清晰）
+#   step=2  G2 调研完 调研后：    file=output/gate-2.txt（调研记录：查不到的必须标「假设，未验证」）
+#   step=3  G3 补盲   盲点扫描后：file=output/gate-3.txt（补盲清单：必须含 ≥1 条 💡 主轴项）
+#   step=4  G4 分类   提问后：    file=output/gate-4.txt（提问记录：必含「目前我听懂了的」小结 + 内部常识轮 + KANO 分类声明；⚠️ 项=0）
 #   step=5  G5 写书前 写书前：    人类检查（不看文件）——脚本只输出核对清单，领导点头才算过
 #   step=6  G6 写书后 写书后：    自动调 goal-lint + coverage-check + 回归目标；并输出「重点人工复核清单」
 # 退出码: 0 = 过；1 = 不过
 # 管理者每步跑一次，不过不许进下一步——防「定义跳过/问不全/写偏」全靠它挡。
 # v1.6.0+ 防跳步预检：跑 G(N) 时自动检查 G(N-1) 产物存在——跳过本闸门 = 自动 fail（不靠 AI 自觉）
+# 产物路径：gate 文件落 AI 会话工作区 output/ 下（OUTPUT_ROOT 可覆盖；默认=$(pwd)，产物=output/gate-N.txt）
 
 STEP="${1:-}"
 FILE="${2:-}"
 
+# 产物根：默认 AI 调用时工作区（cwd），OUTPUT_ROOT 环境变量可显式指定
+OUTPUT_ROOT="${OUTPUT_ROOT:-$(pwd)}"
+GATE_DIR="${OUTPUT_ROOT}/output"
+
 if [ -z "$STEP" ]; then
   echo "用法: stage-gate.sh <step 1-6> [file]"
-  echo "  G1-G4（step 1-4）需要该步产出物文件（.goal/gate-N.txt）"
+  echo "  G1-G4（step 1-4）需要该步产出物文件（output/gate-N.txt）"
   echo "  G5（step 5）人工检查，不需要文件"
   echo "  G6（step 6）写书后自动检查，不需要额外文件（自动调 goal-lint/coverage）"
   exit 2
@@ -29,7 +34,7 @@ pass() { echo "✅ [闸门 G$STEP] $1"; }
 # G1 无前置跳过；G2-G4 检查 gate-(N-1).txt；G5/G6 是人工/自动检查不预检
 if [ "$STEP" -ge 2 ] && [ "$STEP" -le 4 ]; then
   PREV=$((STEP - 1))
-  PREV_FILE=".goal/gate-${PREV}.txt"
+  PREV_FILE="${GATE_DIR}/gate-${PREV}.txt"
   if [ -f "$PREV_FILE" ]; then
     pass "防跳步预检：G${PREV} 产物 ${PREV_FILE} 存在"
   else
@@ -39,7 +44,7 @@ fi
 
 case "$STEP" in
   1)
-    [ -f "$FILE" ] || fail "缺 .goal/gate-1.txt（五层面答案，每行一层：给谁用/解决什么/形态/画面/禁区）"
+    [ -f "$FILE" ] || fail "缺 output/gate-1.txt（五层面答案，每行一层：给谁用/解决什么/形态/画面/禁区）"
     # 非空行数 ≥5（每层一行）
     LINES=$(grep -cE '.+' "$FILE")
     [ "$LINES" -ge 5 ] || fail "五层面只有 ${LINES}/5 层有答案——缺层=目标未清晰，回步骤 1"
@@ -55,7 +60,7 @@ case "$STEP" in
     pass "目标清晰度通过（五层面 ${LINES} 层均有实质答案）"
     ;;
   2)
-    [ -f "$FILE" ] || fail "缺 .goal/gate-2.txt（调研记录）"
+    [ -f "$FILE" ] || fail "缺 output/gate-2.txt（调研记录）"
     # ① 来源必带：调研产出必须带来源（URL/知识库/实测/文件路径），纯推理无来源=没调研
     if grep -qiE 'http|知识库|实测|路径|来源|source|查过|搜到|读到' "$FILE"; then
       pass "调研记录含来源标记（http/知识库/实测/路径）"
@@ -80,7 +85,7 @@ case "$STEP" in
     fi
     ;;
   3)
-    [ -f "$FILE" ] || fail "缺 .goal/gate-3.txt（补盲清单）"
+    [ -f "$FILE" ] || fail "缺 output/gate-3.txt（补盲清单）"
     CNT=$(grep -cE '💡' "$FILE")
     [ "$CNT" -ge 1 ] || fail "补盲清单没有 💡 主轴项（AI 主动补盲是扫盲的核心，≥1 条才合格）"
     pass "补盲清单含 💡 × ${CNT}（AI 主动补盲到位）"
@@ -114,7 +119,7 @@ case "$STEP" in
     fi
     ;;
   4)
-    [ -f "$FILE" ] || fail "缺 .goal/gate-4.txt（提问记录）"
+    [ -f "$FILE" ] || fail "缺 output/gate-4.txt（提问记录）"
     grep -qE '目前我听懂了的|我理解到' "$FILE" || fail "提问记录没有「目前我听懂了的」小结——逐轮确认缺失，回步骤 4"
     # ⚠️ 项必须清零（被提问解决或被默认值覆盖）
     # v5.10.0 修复：字符级误判——"⚠️ 已清零"这类完成态说明含 ⚠️ 字样，grep -qE '⚠️' 会误判未清零。

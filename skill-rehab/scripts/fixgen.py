@@ -3,7 +3,7 @@
 fixgen.py — 处方生成器（评估器 JSON → 修复建议清单）
 
 模块 C（半自动修复）：把「处方」环节脚本化——读评估器未过项，
-对照 references/mechanism.md 的修法选项，输出修复建议清单 .goal/fix-suggestions.md。
+对照 references/mechanism.md 的修法选项，输出修复建议清单 output/skill-rehab/fix-suggestions.md。
 
 死规矩：
   1. fixgen 不许自己改文件（只输出建议清单）
@@ -28,9 +28,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import skill_eval
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-WORKSPACE = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
-MECHANISM = os.path.join(WORKSPACE, "references", "mechanism.md")
-OUT_SUGGEST = os.path.join(WORKSPACE, ".goal", "fix-suggestions.md")
+SKILL_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))   # skill 自身根目录：只定位资源（mechanism.md），不写产物
+MECHANISM = os.path.join(SKILL_ROOT, "references", "mechanism.md")
+# 产物输出：默认 AI 当前会话工作区（os.getcwd()），--workspace 可显式覆盖
+WORKSPACE = os.getcwd()
+OUT_SUGGEST = os.path.join(WORKSPACE, "output", "skill-rehab", "fix-suggestions.md")
 
 
 def parse_issue(issue):
@@ -74,12 +76,16 @@ def load_mechanism_fix(item_name):
 
 def main():
     if len(sys.argv) < 3:
-        print("用法: python3 scripts/fixgen.py <评估器JSON> <目标skill路径> [--rehab]")
-        print("      --rehab  生成修复履历（读 .goal/fix-suggestions.md + 修复前后评估，写 .goal/rehab-diff/）")
+        print("用法: python3 scripts/fixgen.py <评估器JSON> <目标skill路径> [--rehab] [--workspace <目录>]")
+        print("      --rehab       生成修复履历（读 output/skill-rehab/fix-suggestions.md + 修复前后评估，写 output/skill-rehab/rehab-diff/）")
+        print("      --workspace   产物输出目录（默认=当前工作区，产物落 <工作区>/output/skill-rehab/）")
         return 1
     json_path = sys.argv[1]
     skill_arg = sys.argv[2]
     rehab_mode = "--rehab" in sys.argv
+    if "--workspace" in sys.argv:
+        global WORKSPACE
+        WORKSPACE = sys.argv[sys.argv.index("--workspace") + 1]
 
     skill_path = skill_arg if skill_arg.endswith("SKILL.md") else os.path.join(skill_arg, "SKILL.md")
     if not os.path.isfile(skill_path):
@@ -116,7 +122,7 @@ def main():
         return gen_rehab(skill_path, issues, version)
 
     # 生成建议清单
-    os.makedirs(os.path.join(WORKSPACE, ".goal"), exist_ok=True)
+    os.makedirs(os.path.join(WORKSPACE, "output", "skill-rehab"), exist_ok=True)
     lines = []
     lines.append("# 修复建议清单（fixgen 生成）")
     lines.append("")
@@ -165,8 +171,8 @@ def main():
 
 
 def gen_rehab(skill_path, issues, version):
-    """生成修复履历：读 .goal/fix-suggestions.md 的建议 + 修复前后评估对比，写 .goal/rehab-diff/"""
-    rehab_dir = os.path.join(WORKSPACE, ".goal", "rehab-diff")
+    """生成修复履历：读 output/skill-rehab/fix-suggestions.md 的建议 + 修复前后评估对比，写 output/skill-rehab/rehab-diff/"""
+    rehab_dir = os.path.join(WORKSPACE, "output", "skill-rehab", "rehab-diff")
     os.makedirs(rehab_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     skill_tag = os.path.basename(os.path.dirname(skill_path)) or "skill"
@@ -192,7 +198,7 @@ def gen_rehab(skill_path, issues, version):
     lines.append("| 项 | 未过详情 | 分级 | 为什么修 | 对应机制 | 修法 | 验证结果 |")
     lines.append("|:---|:---------|:----:|:---------|:---------|:-----|:--------|")
     # 从建议清单带出分级/机制；验证结果由 fixapply 实际输出回填（死规矩：不许手写「应该过了」）
-    suggest = os.path.join(WORKSPACE, ".goal", "fix-suggestions.md")
+    suggest = os.path.join(WORKSPACE, "output", "skill-rehab", "fix-suggestions.md")
     items = []
     if os.path.isfile(suggest):
         cur = {}

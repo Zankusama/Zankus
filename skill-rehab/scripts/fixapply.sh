@@ -11,11 +11,12 @@
 # 死规矩：
 #   1. 应用真实文件前必须停下来确认（默认模式只提示，--apply 才写真实文件）
 #   2. 每项独立验证，不许攒多项一起验
-#   3. 应用前 .goal/backups/ 必须有 cp -p 备份（默认模式第一步就做）
+#   3. 应用前 output/backups/ 必须有 cp -p 备份（默认模式第一步就做；备份落 AI 会话工作区 output/ 下，不藏 skill 目录）
 #   4. 不许吞失败（无 || true）
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE="$(cd "${SCRIPT_DIR}/.." && pwd)"          # skill-rehab 包根：定位 sandbox 与被修样本
+OUTPUT_ROOT="${OUTPUT_ROOT:-$(pwd)}"                 # 产物输出根：默认 AI 调用时工作区，OUTPUT_ROOT 可覆盖
 
 SKILL="${1:?用法: fixapply.sh <skill名> <item名> <修复后SKILL.md路径> [--apply]}"
 ITEM="${2:?缺 item 名（如 key_constraint_repeated）}"
@@ -25,7 +26,7 @@ APPLY="${4:-}"
 REAL_FILE="${WORKSPACE}/${SKILL}/SKILL.md"   # 真实目标（SKILL 可为工作区内 skill 目录路径，如 tests/golden/g15_anchor_repeat_fail）
 SANDBOX_DIR="${WORKSPACE}/tests/fixsandbox/${SKILL}"
 SANDBOX_FILE="${SANDBOX_DIR}/SKILL.md"
-BACKUP_DIR="${WORKSPACE}/.goal/backups"
+BACKUP_DIR="${OUTPUT_ROOT}/output/backups"
 
 if [ ! -f "${FIX_SRC}" ]; then
   echo "❌ 修复源不存在: ${FIX_SRC}" >&2

@@ -95,11 +95,17 @@ EXPECT = {
         ("l4_quality", "l4_convergence_terminal"): True,
         ("l4_quality", "l4_runtime_check"): True,
     },  # 产出载体+收敛终端+check 脚本 → 全过
-    "g58_behavior_fail": {
-        ("l4_quality", "l4_output_carrier"): False,
-        ("l4_quality", "l4_convergence_terminal"): False,
-        ("l4_quality", "l4_runtime_check"): False,
-    },  # 纯陪聊无产出 → 行为层全 FAIL（体验型 skill 零交付）
+    # ── v5.0.0 新增：A–K 融合新检查项样本（g59-g68，文件系统级 + 新检查正/反例）──
+    "g59_skill_size_fail":     {("l3_skeleton", "l3_skill_size"): False},   # >500 行且无 references/ 目录
+    "g60_skill_size_ok":       {("l3_skeleton", "l3_skill_size"): True},    # >500 行但有 references/ 目录真实存在
+    "g61_ref_nesting_fail":    {("l3_skeleton", "l3_ref_nesting"): False},  # references/ 嵌套 2 层
+    "g62_name_constraints_fail": {("l1_positioning", "l1_name_constraints"): False},  # name 含保留词 claude
+    "g63_desc_format_fail":    {("l1_positioning", "l1_desc_format"): False},  # description 含 XML 尖括号
+    "g64_trigger_coverage_ok": {("l2_triggering", "l2_trigger_test_coverage"): True},  # 三场景覆盖
+    "g65_compatibility_ok":    {("l3_skeleton", "l3_compatibility_declared"): True},
+    "g66_script_quality_fail": {("l3_skeleton", "l3_script_quality"): False},  # 脚本含 Windows 路径
+    "g67_install_review_ok":   {("l5_safety", "l5_install_review"): True},
+    "g68_example_fail":        {("l4_quality", "l4_example"): False},  # 无完整示例段
 }
 
 

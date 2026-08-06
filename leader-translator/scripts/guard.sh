@@ -7,10 +7,10 @@
 #   guard.sh check    <基线文件> "key=value" [...]    # 验收时：实际值 ≥ 基线才过
 # 退出码: 0 = 过；1 = 不过
 # 用法示例（写进任务书任务 0 与验收节）:
-#   guard.sh snapshot .goal/hashes.txt tests/ ci.yml
-#   guard.sh record   .goal/baseline.txt tests=42 coverage=80
-#   guard.sh verify   .goal/hashes.txt
-#   guard.sh check    .goal/baseline.txt tests=45 coverage=81
+#   guard.sh snapshot output/hashes.txt tests/ ci.yml
+#   guard.sh record   output/baseline.txt tests=42 coverage=80
+#   guard.sh verify   output/hashes.txt
+#   guard.sh check    output/baseline.txt tests=45 coverage=81
 
 CMD="$1"; BASE="$2"; shift 2 2>/dev/null
 
