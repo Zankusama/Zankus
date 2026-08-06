@@ -2,3 +2,7 @@
 .goal/
 scripts/.snapshots/
 .DS_Store
+
+# Python 运行时缓存（解释器自动生成，非产物）
+__pycache__/
+*.pyc
