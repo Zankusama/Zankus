@@ -10,6 +10,7 @@
 #   1. 抽取机制关键词（心理机制/框架/干预/练习/理论名）
 #   2. 若命中机制词 → 检查是否含白名单域名/机构引用
 #   3. 命中机制但无白名单引用 → exit 1，须先 WebSearch 白名单挂出处再出口
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -32,10 +33,22 @@ WHITELIST = [
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] != "-":
-        text = Path(sys.argv[1]).read_text(encoding="utf-8")
-    else:
-        text = sys.stdin.read()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("file", nargs="?", default="-", help="回复文本文件，'-' 表示读 stdin")
+    ap.add_argument("--mode", choices=["default", "dialogue"], default="default",
+                    help="default=交付/正式出口需挂白名单；dialogue=对话内化不外露+伪引用拦截")
+    ap.add_argument("--output", metavar="FILE",
+                    help="校验交付画像（严：占位符残留拦截 + 机制须挂白名单出处）")
+    args = ap.parse_args()
+
+    text = Path(args.file).read_text(encoding="utf-8") if args.file != "-" else sys.stdin.read()
+
+    # --output：交付物严模式（占位符残留拦截）
+    if args.output:
+        out = Path(args.output).read_text(encoding="utf-8")
+        if "{{" in out:
+            print("❌ 交付画像含占位符残留 → 未填完（exit 1）")
+            sys.exit(1)
 
     hits = [k for k in MECH_KEYWORDS if k in text]
     if not hits:
@@ -43,6 +56,21 @@ def main():
         sys.exit(0)
 
     has_wl = any(w.lower() in text.lower() for w in WHITELIST)
+
+    # --mode dialogue：对话内化不外露 + 伪引用拦截
+    if args.mode == "dialogue":
+        PSEUDO = ["研究表明", "根据研究", "数据显示", "有论文说"]
+        pseudo = [p for p in PSEUDO if p in text and not has_wl]
+        if pseudo:
+            print(f"❌ 对话模式检出伪引用 {pseudo} 但无白名单 → 拦截（exit 1）")
+            sys.exit(1)
+        # 对话模式允许内化（有白名单即可），不强制外显引用
+        if has_wl:
+            print("✅ 对话模式：机制已内化、出处合规（exit 0）")
+            sys.exit(0)
+        print("❌ 对话模式：含机制但无白名单出处（exit 1）")
+        sys.exit(1)
+
     if has_wl:
         print(f"✅ 命中机制词 {len(hits)} 个，已挂白名单出处 → RAG 合规（exit 0）")
         print("   机制词:", "、".join(hits[:8]))

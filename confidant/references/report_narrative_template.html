@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>情绪画像 · 回望版 · Confidant</title>
+<style>
+  :root{
+    --ink:#243240; --soft:#6b7c8e; --bg:#e9eef3; --card:#ffffff; --line:#d8e1e9;
+    --risk:#d9694e; --risk-bg:#fbece8;
+    --mech:#3f6f9f; --mech-bg:#eaf1f8;
+    --act:#4f9d77;  --act-bg:#eaf5ef;
+    --warn:#c97e4a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--card);color:var(--ink);line-height:1.7}
+  .wrap{width:100%;margin:0;background:var(--card)}
+  .cover{background:linear-gradient(135deg,#243240,#3a6b7e);color:#fff;padding:40px 36px 32px}
+  .cover .kicker{font-size:12px;letter-spacing:4px;opacity:.7;margin-bottom:10px}
+  .cover h1{font-size:38px;font-weight:800;letter-spacing:2px;line-height:1.1}
+  .cover .sub{font-size:15px;opacity:.92;margin-top:10px;max-width:560px}
+  .cover .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px}
+  .cover .meta span{background:rgba(255,255,255,.15);border-radius:20px;padding:4px 12px}
+  .overview{display:flex;gap:0;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+  .ov-insight{flex:1 1 320px;background:var(--mech-bg);padding:24px 30px;border-right:1px solid var(--line)}
+  .ov-insight .lab{font-size:11px;letter-spacing:2px;color:var(--mech);font-weight:700;margin-bottom:8px}
+  .ov-insight .big{font-size:18px;font-weight:700;color:var(--ink);line-height:1.55}
+  .spine{padding:8px 36px 0;max-width:1080px;margin:0 auto}
+  .sec{position:relative;padding:22px 0 22px 56px;border-left:2px solid var(--line);margin-left:14px}
+  .sec:last-child{border-left-color:transparent}
+  .sec .node{position:absolute;left:-15px;top:24px;width:28px;height:28px;border-radius:50%;
+    color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .sec h2{font-size:17px;font-weight:700;margin-bottom:12px;color:var(--ink)}
+  .sec .tag{font-size:11px;padding:2px 9px;border-radius:6px;margin-left:8px;vertical-align:middle;font-weight:600}
+  .t-mech{background:var(--mech-bg);color:var(--mech)}
+  .t-act{background:var(--act-bg);color:var(--act)}
+  .moment{background:#f4f7fa;border-left:4px solid var(--mech);border-radius:8px;
+    padding:12px 14px;margin-bottom:10px;font-size:14px}
+  .moment b{color:var(--mech)}
+  .reframe{background:var(--risk-bg);border-left:4px solid var(--warn);border-radius:8px;
+    padding:12px 14px;margin-bottom:10px;font-size:14px}
+  .reframe b{color:var(--warn)}
+  .act{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .act:last-child{border-bottom:none}
+  .act .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--act);color:#fff;
+    font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .act .body{font-size:14px}.act .body b{color:var(--act)}
+  .act.first{background:var(--act-bg);border-radius:10px;padding:14px;margin-bottom:6px}
+  .act.first .n{background:var(--warn)}
+  .hot{background:var(--risk-bg);border-top:3px solid var(--risk);padding:20px 36px;font-size:14px}
+  .hot b{color:var(--risk)}
+  .disc{font-size:12px;color:var(--soft);text-align:center;padding:16px 36px;background:var(--card)}
+  @media print{.cover{background:#243240 !important;-webkit-print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="cover">
+    <div class="kicker">CONFIDANT · 情绪画像</div>
+    <h1>{{cover_title｜默认：情绪画像 · 回望}}</h1>
+    <div class="sub">{{cover_sub：把今天聊到的瞬间收拢在一起，帮你看见自己走过的这一段}}</div>
+    <div class="meta"><span>{{date}}</span><span>自省用</span><span>回望版</span></div>
+  </div>
+  <div class="overview">
+    <div class="ov-insight">
+      <div class="lab">一眼结论</div>
+      <div class="big">{{hero_insight：接得住的大白话，不堆术语}}</div>
+    </div>
+  </div>
+  <div class="spine">
+    <div class="sec">
+      <div class="node" style="background:var(--mech)">1</div>
+      <h2>这段里你说过的关键瞬间<span class="tag t-mech">回望</span></h2>
+      <div class="moment"><b>瞬间 1</b>：{{对方原话锚点1，尽量用 TA 自己的话}}</div>
+      <div class="moment"><b>瞬间 2</b>：{{对方原话锚点2}}</div>
+      <div class="moment"><b>瞬间 3</b>：{{对方原话锚点3（可选）}}</div>
+    </div>
+    <div class="sec">
+      <div class="node" style="background:var(--warn)">2</div>
+      <h2>一个温和的重新框定<span class="tag t-mech">新视角</span></h2>
+      <div class="reframe"><b>{{洞见标题}}</b>{{洞见内容：基于对话、不贴标签、不诊断的重新框定}}</div>
+    </div>
+    <div class="sec">
+      <div class="node" style="background:var(--act)">3</div>
+      <h2>今天就能做的一件<span class="tag t-act">行动</span></h2>
+      <div class="act first"><div class="n">★</div><div class="body"><b>{{方向1名·今天就能做的一件}}</b>：{{做法}}。原理：{{一句大白话原理}}。</div></div>
+      <div class="act"><div class="n">2</div><div class="body"><b>{{方向2名}}</b>：{{做法+原理}}</div></div>
+      <div class="src">{{方向总体免责：非医疗建议；持续≥数周且影响白天功能建议专业评估}}</div>
+    </div>
+  </div>
+  <div class="hot">
+    <b>如果哪天觉得实在扛不住</b><br>
+    全国心理援助热线 <b>12356</b>（24 小时）<br>
+    北京心理危机干预中心 手机 <b>010-82951332</b> / 座机 <b>800-810-1117</b>
+  </div>
+  <p class="disc">这是基于对话的自我理解工具，不是医疗诊断，也不能替代专业评估。如果情绪已影响吃饭、睡觉、干活，请考虑联系上面的热线或专业机构。</p>
+</div>
+</body>
+</html>

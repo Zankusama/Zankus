@@ -56,9 +56,24 @@ zone = skill_text.split("## 4 禁区", 1)[1].split("## 5", 1)[0] if "## 4 禁区
 # 正文话术区 = 去除 frontmatter、NOT for 行、禁区段之后的全部文本
 body = skill_text.split("---", 2)[2] if skill_text.count("---") >= 3 else skill_text
 body = body.split("## 4 禁区", 1)[0] + (skill_text.split("## 5", 1)[1] if "## 5" in skill_text else "")
-for w in ["诊断", "治疗", "痊愈", "疾病"]:
+FORBIDDEN = ["诊断", "治疗", "痊愈", "疾病",
+             "想太多", "矫情", "玻璃心", "这没什么大不了"]
+for w in FORBIDDEN:
     in_body = body.count(w)
     check(f"禁区词『{w}』正文话术区零使用", in_body == 0, f"(正文话术区 {in_body} 处)")
+
+# 3b. 「诊断报告」四字全仓库=0（画像交付物措辞统一为「个案概念化/概念化梳理」，绝不允许出现「诊断报告」）
+all_md = "\n".join(
+    (ROOT / f).read_text(encoding="utf-8", errors="ignore")
+    for f in ["SKILL.md", "README.md"]
+)
+all_ref = "\n".join(
+    (REF / f).read_text(encoding="utf-8", errors="ignore")
+    for f in ["crisis.md", "anchors.md", "practices.md", "report.md",
+              "report_template.html", "report_narrative_template.html"]
+)
+check("『诊断报告』全文件=0", "诊断报告" not in (all_md + all_ref),
+      "(出现于非免责/非禁区上下文)")
 
 # 4. 关键锚点
 for k in ["双模式", "每 4-6 轮", "白名单", "WebSearch"]:
@@ -76,6 +91,10 @@ if (REF / "report_template.html").exists():
     # 概念化型模板（v0.6.0 起）强制板块：5-P / 谱系 / 机制图 / 新洞见 / 可试方向 / 文档标题
     for sec in ["情绪画像", "个案概念化（5-P 模型）", "症状谱系定位", "机制图", "给你没说出口的重新框定", "可以试试的方向（有依据"]:
         check(f"模板含板块『{sec}』", sec in tpl, f"(report_template.html 缺板块 {sec})")
+    # 叙事性回望版板块（独立文件，同视觉风格，由 check_readiness.py 按深度自动选）
+    narr = (REF / "report_narrative_template.html").read_text(encoding="utf-8") if (REF / "report_narrative_template.html").exists() else ""
+    for sec in ["情绪画像", "回望", "关键瞬间", "重新框定", "今天就能做的一件"]:
+        check(f"叙事模板含板块『{sec}』", sec in narr, f"(report_narrative_template.html 缺板块 {sec})")
 else:
     check("references/report_template.html", False, "(文件不存在)")
 

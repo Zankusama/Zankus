@@ -133,14 +133,15 @@
       <div class="big">{{hero_insight：把最核心的重新框定压成一句话，让人一眼看懂}}</div>
     </div>
     <div class="ov-gauges">
-      <div class="gauge"><div class="gl"><b>焦虑</b><span>{{gauge_焦虑}}/10</span></div>
-        <div class="bar"><i style="width:{{gauge_焦虑_pct}}%;background:var(--risk)"></i></div></div>
-      <div class="gauge"><div class="gl"><b>睡眠</b><span>{{gauge_睡眠}}/10</span></div>
-        <div class="bar"><i style="width:{{gauge_睡眠_pct}}%;background:var(--mech)"></i></div></div>
-      <div class="gauge"><div class="gl"><b>工作</b><span>{{gauge_工作}}/10</span></div>
-        <div class="bar"><i style="width:{{gauge_工作_pct}}%;background:var(--warn)"></i></div></div>
-      <div class="gauge"><div class="gl"><b>希望</b><span>{{gauge_希望}}/10</span></div>
-        <div class="bar"><i style="width:{{gauge_希望_pct}}%;background:var(--act)"></i></div></div>
+      <!-- 状态条：由本案例维度动态生成 3–4 个，勿写死焦虑/睡眠/工作/希望 -->
+      <div class="gauge"><div class="gl"><b>{{gauge_1_name}}</b><span>{{gauge_1_val}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_1_pct}}%;background:var(--risk)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>{{gauge_2_name}}</b><span>{{gauge_2_val}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_2_pct}}%;background:var(--mech)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>{{gauge_3_name}}</b><span>{{gauge_3_val}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_3_pct}}%;background:var(--warn)"></i></div></div>
+      <div class="gauge"><div class="gl"><b>{{gauge_4_name}}</b><span>{{gauge_4_val}}/10</span></div>
+        <div class="bar"><i style="width:{{gauge_4_pct}}%;background:var(--act)"></i></div></div>
     </div>
   </div>
 
@@ -165,7 +166,7 @@
     <div class="sec">
       <div class="node" style="background:var(--mech)">2</div>
       <h2>症状谱系定位<span class="tag t-mech">非诊断</span></h2>
-      <div class="spec"><b>{{维度1名}}</b>：{{维度1内容，按公认维度归类，对照 NIMH/GAD-7 描述但不下诊断}}</div>
+      <div class="spec"><b>{{维度1名}}</b>：{{维度1内容，按公认维度归类，对照 NIMH 及 GAD-7/PHQ-9/PSS（依呈现症状选用）描述但不下诊断}}</div>
       <div class="spec"><b>{{维度2名}}</b>：{{维度2内容}}</div>
       <div class="spec"><b>{{维度3名}}</b>：{{维度3内容}}</div>
       <div class="spec"><b>{{维度4名}}</b>：{{维度4内容}}</div>
