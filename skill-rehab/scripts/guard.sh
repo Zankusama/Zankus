@@ -67,7 +67,12 @@ case "$cmd" in
       python3 "${SCRIPT_DIR}/run_goldens.py" 2>&1 | tail -15 >&2
       exit 1
     fi
-    echo "✓ check：--self + goldens 全过"
+    if ! python3 "${SCRIPT_DIR}/run_redteam.py" --self >/dev/null 2>&1; then
+      echo "✗ check FAIL：redteam 盲区召回退化（已知盲区漏抓，须修 run_redteam.py）" >&2
+      python3 "${SCRIPT_DIR}/run_redteam.py" --self 2>&1 | tail -15 >&2
+      exit 1
+    fi
+    echo "✓ check：--self + goldens + redteam 全过"
     ;;
   diff)
     if [ ! -f "$LATEST_EVAL" ]; then

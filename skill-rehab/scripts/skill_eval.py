@@ -32,7 +32,21 @@ import json
 import argparse
 from datetime import datetime
 
-DEFAULT_SKILL_BASE = os.path.expanduser("~/AI记忆库/技能配置")
+# 跨平台默认技能目录：多候选探测，取第一个存在的；都不存在则回退首选（留待 --base 覆盖，main 里友好报错）
+_DEFAULT_BASE_CANDIDATES = [
+    "~/AI记忆库/技能配置",
+    "~/个人AI档案/技能配置",
+    "~/skills-config",
+]
+
+def _resolve_default_base():
+    for _p in _DEFAULT_BASE_CANDIDATES:
+        _ep = os.path.expanduser(_p)
+        if os.path.isdir(_ep):
+            return _ep
+    return os.path.expanduser(_DEFAULT_BASE_CANDIDATES[0])
+
+DEFAULT_SKILL_BASE = _resolve_default_base()
 DEFAULT_CORE_SKILLS = ["skill-rehab", "leader-translator", "second-brain"]
 
 
@@ -1277,7 +1291,7 @@ def self_check():
 
 def main():
     parser = argparse.ArgumentParser(description="Skill 质量评估 v5（7 层架构 · P0/P1/P2/info 分级打分）")
-    parser.add_argument("--base", "-b", default=DEFAULT_SKILL_BASE, help="技能配置文件目录")
+    parser.add_argument("--base", "-b", default=DEFAULT_SKILL_BASE, help="技能配置文件目录（默认自动探测 ~/AI记忆库/技能配置 等候选；不存在请显式传入 --base）")
     parser.add_argument("--output", "-o", default=None, help="报告输出目录（相对路径，站在当前工作区跑；产物只进工作区 output/。未指定=只打印不落盘）")
     parser.add_argument("--skills", "-s", default=",".join(DEFAULT_CORE_SKILLS), help="技能列表（逗号分隔）")
     parser.add_argument("--self", action="store_true", help="体检本脚本")
@@ -1285,6 +1299,14 @@ def main():
 
     if args.self:
         sys.exit(self_check())
+
+    # 跨平台友好报错：技能配置目录不存在时不再裸崩（P0-2 修复）
+    if not os.path.isdir(args.base):
+        sys.stderr.write(
+            "❌ 技能配置目录不存在：%s\n"
+            "   请显式传入 --base <你的技能配置文件目录>\n" % args.base
+        )
+        sys.exit(2)
 
     # v1.8.3：产物只进工作区。未指定 --output = 只打印评估结果，不落盘（零报错，物理杜绝落错 skill 目录）
     no_output = args.output is None
