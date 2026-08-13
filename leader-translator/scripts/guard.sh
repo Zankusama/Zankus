@@ -17,18 +17,23 @@ CMD="$1"; BASE="$2"; shift 2 2>/dev/null
 # macOS 自带 shasum；Linux 通常用 sha256sum；缺则回退到 shasum（兼容 BSD）
 if command -v sha256sum >/dev/null 2>&1; then
   hash_of() { sha256sum "$1" | cut -d' ' -f1; }
+  dir_hash() { find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1; }
 else
   hash_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+  dir_hash() { find "$1" -type f -print0 2>/dev/null | sort -z | xargs -0 shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1; }
 fi
 
 case "$CMD" in
   snapshot)
     [ -n "$BASE" ] || { echo "用法: guard.sh snapshot <基线文件> <路径...>"; exit 1; }
     : > "$BASE"
+    FROZEN=0
     for f in "$@"; do
-      if [ -f "$f" ]; then echo "$(hash_of "$f")  $f" >> "$BASE"; else echo "⚠️ 路径不存在，跳过: $f"; fi
+      if [ -f "$f" ]; then echo "$(hash_of "$f")  $f" >> "$BASE"; FROZEN=$((FROZEN+1))
+      elif [ -d "$f" ]; then echo "$(dir_hash "$f")  $f" >> "$BASE"; FROZEN=$((FROZEN+1))
+      else echo "⚠️ 路径不存在，跳过: $f"; fi
     done
-    echo "✅ snapshot: $# 个文件 hash 已冻结 → $BASE"
+    echo "✅ snapshot: ${FROZEN} 个路径 hash 已冻结 → $BASE"
     ;;
   verify)
     [ -f "$BASE" ] || { echo "❌ 找不到基线文件 $BASE（先跑 guard.sh snapshot）"; exit 1; }
@@ -38,6 +43,8 @@ case "$CMD" in
       CNT=$((CNT+1))
       if [ -f "$path" ]; then
         if [ "$(hash_of "$path")" = "$hash" ]; then echo "✅ 未变: $path"; else echo "❌ 已变: $path"; FAIL=1; fi
+      elif [ -d "$path" ]; then
+        if [ "$(dir_hash "$path")" = "$hash" ]; then echo "✅ 未变(目录): $path"; else echo "❌ 已变(目录): $path"; FAIL=1; fi
       else
         echo "❌ 文件消失: $path"; FAIL=1
       fi

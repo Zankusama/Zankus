@@ -72,3 +72,22 @@ cp references/report_template.html /tmp/confidant-fake-output.html && sed -i '' 
 python3 scripts/check_safety.py --output /tmp/confidant-fake-output.html && echo "❌ 应 fail" || echo "✅ 占位符残留被拦截 (exit 1)"
 rm -f /tmp/confidant-fake-output.html
 ```
+
+## 场景 F：check_readiness 判定不误伤（v1.2.0 修复锁死）
+
+**期望**：①浅聊无模式确认即使 AI 行含「也/和」也走叙事版（F1 修复）；②危机语境「可以了，不用管我了」不出画像就绪（F2 修复）；③错误格式明确报错非静默当未就绪（P2-4 修复）。
+
+**验证命令**：
+
+```bash
+# F1 反例已入 selftest：浅聊含也/和 → narrative
+grep -n "T4 浅聊含也/和" scripts/check_readiness.py
+# F2 反例已入 selftest：危机语境可以了 → 拦
+grep -n "T5 危机语境可以了" scripts/check_readiness.py
+# 危机词负向排除逻辑在（CRISIS 列表）
+grep -n "CRISIS" scripts/check_readiness.py
+# 格式预检在（首行非 USER:/AI: → exit 2）
+grep -n "对话历史格式错误" scripts/check_readiness.py
+# 全量回归
+python3 scripts/check_readiness.py --selftest   # 期望 5/5 过
+```

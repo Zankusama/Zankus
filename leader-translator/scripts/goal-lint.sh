@@ -20,9 +20,10 @@ if [ "$1" = "--self" ]; then
   for f in "$SKILL_DIR/scripts/goal-lint.sh" "$SKILL_DIR/scripts/guard.sh" "$SKILL_DIR/scripts/coverage-check.sh" "$SKILL_DIR/scripts/stage-gate.sh" "$SKILL_DIR/scripts/pyramid-gen.py" "$SKILL_DIR/scripts/acceptance-check.sh"; do
     if [ -f "$f" ]; then pass "存在: ${f#$SKILL_DIR/}"; else fail "缺失: ${f#$SKILL_DIR/}"; fi
   done
-  for f in "$SKILL_DIR/references/anatomy.md" "$SKILL_DIR/references/glossary.md" "$SKILL_DIR/references/style.md"; do
+  for f in "$SKILL_DIR/references/anatomy.md" "$SKILL_DIR/references/glossary.md" "$SKILL_DIR/references/style.md" "$SKILL_DIR/references/examples.md"; do
     if [ -f "$f" ]; then pass "存在: ${f#$SKILL_DIR/}"; else fail "缺失: ${f#$SKILL_DIR/}"; fi
   done
+  if [ -d "$SKILL_DIR/tests" ]; then pass "存在: tests/ 目录"; else fail "缺失: tests/ 目录"; fi
   for sec in "## 流程" "## 写书规则" "## 发出前自检"; do
     if grep -qF "$sec" "$SKILL_FILE"; then pass "含节: $sec"; else fail "缺节: $sec"; fi
   done
@@ -90,7 +91,10 @@ done
 
 # 4. 产物路径检查（三条禁令 + 修复原「无产物引用直接 pass」漏检）
 #    触发：任务书有【界限】/【工作产物放哪】/【现状与任务 0】/【完成条件】任一节→应有 output/ 声明（.goal 旧约定已废弃，2026-08-06 全量迁移后只收 output/）
-PROD_LINES=$(printf '%s\n' "$CONTENT" | grep -E "PROGRESS\.md|BLOCKED\.md|\.bak|output/")
+#    v5.12.0 修复：PROD_LINES 提取器排除「工具命令行」——否则 `guard.sh snapshot output/hashes.txt` 这类含 output/ 的命令行会被误判为产物路径行，
+#    触发 4b/4c（禁指 skill 本体/禁预埋绝对路径）死锁。命令行特征：行内含命令执行符（bash /sh /python /node /npm /npx /curl /git 或 /scripts/）。
+PROD_LINES=$(printf '%s\n' "$CONTENT" | grep -E "PROGRESS\.md|BLOCKED\.md|\.bak|output/" \
+  | grep -vE "(bash |sh |python|python3|node|npm|npx|curl |git |cd |/scripts/)")
 if [ -z "$PROD_LINES" ]; then
   # 检查是否含可能产生产物的节
   if printf '%s' "$CONTENT" | grep -qE "【工作产物放哪】|【界限】|【现状与任务 0】"; then

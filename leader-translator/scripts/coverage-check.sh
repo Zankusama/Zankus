@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # coverage-check.sh — 任务书完整性核验（防偷删：覆盖清单的每个要点必须命中）
 # 用法: coverage-check.sh <覆盖清单> <任务书文件>
-#       覆盖清单: output/coverage.txt，一行一个必须包含的信息点（子串匹配，支持正则）
-#                 支持 # 注释行与空行；带 ^ 的行表示「必须以该字符串开头」
+#       覆盖清单: output/coverage.txt，一行一个必须包含的信息点
+#                 支持 # 注释行与空行；带 ^ 前缀的行表示「必须以该字符串开头」（锚定行首，其余行=字面子串匹配）
 # 退出码: 0 = 全部命中；1 = 有遗漏（漏点=偷删嫌疑，不许发出）
 # 管理者写书前先物化覆盖清单（列这本书必须有哪些信息点），写完跑本脚本核对。
 
@@ -30,11 +30,22 @@ while IFS= read -r line; do
   [ -z "$line" ] && continue
   case "$line" in \#*) continue ;; esac
   TOTAL=$((TOTAL+1))
-  if grep -qF -- "$line" "$TASKBOOK"; then
-    HIT=$((HIT+1)); echo "✅ 命中: $line"
-  else
-    MISS=$((MISS+1)); echo "❌ 遗漏: $line"
-  fi
+  case "$line" in
+    ^*)  # 带 ^ 前缀：锚定行首（须以该字符串开头）
+      if grep -qE -- "^${line#^}" "$TASKBOOK"; then
+        HIT=$((HIT+1)); echo "✅ 命中: $line"
+      else
+        MISS=$((MISS+1)); echo "❌ 遗漏: $line"
+      fi
+      ;;
+    *)   # 普通行：字面子串匹配
+      if grep -qF -- "$line" "$TASKBOOK"; then
+        HIT=$((HIT+1)); echo "✅ 命中: $line"
+      else
+        MISS=$((MISS+1)); echo "❌ 遗漏: $line"
+      fi
+      ;;
+  esac
 done < "$COVERAGE"
 
 echo "-----------------------------"

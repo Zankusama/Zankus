@@ -1,7 +1,7 @@
 ---
 name: confidant
 description: Confidant（知心伙伴）——给情绪已经影响到生活、又不愿意走进心理门诊的人，一个像朋友一样的倾听出口：温暖陪伴、有出处的科普与可练的方法、产出情绪画像（HTML 信息图），并内置危机识别与转介护栏。触发词：Confidant/知心伙伴/心理咨询/心理支持/情绪疏导/倾诉/焦虑/抑郁/失眠/心里堵得慌/情绪低落。NOT for：医疗诊断/治疗/危机急救。
-version: 1.1.1
+version: 1.2.0
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch
 compatibility: workbuddy
 tested-on: WorkBuddy 2026-08-05 安装验证（触发/危机转介/情绪画像三场景亲验通过）
@@ -275,6 +275,8 @@ confidant 是**偏心理咨询的陪伴代理**，不是树洞——核心动作
 - **RAG 层**：`scripts/check_rag.py` 校验机制内容是否挂白名单出处，AI 每次出口机制/框架/干预前须先跑、退出码 1 即失守须补检索。
 两脚本比 hook 更贴合本 skill 形态。若未来接入文件写操作，再评估挂 hook。
 
+**危机检测为何不脚本化（显式留 AI 理由，v1.2.0）**：危机信号识别（§1.2 单向优先）**属对话内实时判断，脚本化会误伤语境**——「不想活了」在玩笑/吐槽语境与真实危机语境语义完全不同，纯关键词扫描必然误切或漏切；且危机判断依赖对话上下文的连续流动（如「我开玩笑的」回落规则），脚本无法建模。因此危机切换由 AI 在对话内判断（§1.2 完整规则 + `references/crisis.md` 分级追问兜底），但 `check_readiness.py` 已加**危机词负向排除**（v1.2.0）：对话历史含危机语境（不用管我/撑不下去等）时，字面命中「可以了」不算「说完了」，不出画像就绪——防止危机层误报画像。
+
 ### 7.4 状态物化
 
 - 危机风险分级判断（轻/中/重）在对话内维护，每 4-6 轮重评（见 §5）
@@ -298,9 +300,9 @@ confidant 是**偏心理咨询的陪伴代理**，不是树洞——核心动作
 |:---|:---|:---|
 | `scripts/check_safety.py` | 安全红线自检（热线/免责/禁区词/锚点/文件齐全）+ `report_template.html` 含热线与必需板块；`--output <画像文件>` 时校验交付画像无 `{{` 占位符残留 + 含热线/免责 | 退出码 0 = 红线全过；1 = 有失守 |
 | `scripts/check_rag.py` | 运行时 RAG 合规（机制内容须挂白名单出处） | 退出码 0 = 合规；1 = RAG 失守 |
-| `scripts/check_readiness.py` | 出画像就绪闸门（Gate1 说完了 + 深度模板判定） | 退出码 0 = 就绪（输出 conceptual/narrative）；1 = 未达「说完了」 |
+| `scripts/check_readiness.py` | 出画像就绪闸门（Gate1 说完了 + 深度模板判定） | 退出码 0 = 就绪（输出 conceptual/narrative）；1 = 未达「说完了」；2 = 对话历史格式错误 |
 
-使用：交付前在 skill 根目录跑 `python3 scripts/check_safety.py`（退出码 0 才交付）；生成交付画像后跑 `python3 scripts/check_safety.py --output <画像文件>` 确认无占位符残留（退出码 0 才展示给用户）；每次出口机制/框架/干预内容前跑 `python3 scripts/check_rag.py <回复文本>` 自检（退出码 1 须补检索）；出画像前把对话历史写成临时文件跑 `python3 scripts/check_readiness.py <对话历史文件>` 判定模板——**对话历史文件格式必须为每行 `USER: 用户发言` / `AI: 助手发言`（前缀大写+英文冒号），否则脚本读不到对话，会误判「未说完了」**。任何修改红线内容后必须重跑 check_safety。
+使用：交付前在 skill 根目录跑 `python3 scripts/check_safety.py`（退出码 0 才交付）；生成交付画像后跑 `python3 scripts/check_safety.py --output <画像文件>` 确认无占位符残留（退出码 0 才展示给用户）；每次出口机制/框架/干预内容前跑 `python3 scripts/check_rag.py <回复文本>` 自检（退出码 1 须补检索）；出画像前把对话历史写成临时文件跑 `python3 scripts/check_readiness.py <对话历史文件>` 判定模板——**对话历史文件格式必须为每行 `USER: 用户发言` / `AI: 助手发言`（前缀大写+英文冒号），否则脚本报格式错误（退出码 2）并指出问题行**。任何修改红线内容后必须重跑 check_safety。
 
 **依赖声明**：本 skill 脚本需 **Python ≥ 3.8**（用 `python3` 运行；`check_safety.py` 额外依赖 `pathlib`，标准库自带，无需 pip 安装）。
 
@@ -314,6 +316,7 @@ confidant 是**偏心理咨询的陪伴代理**，不是树洞——核心动作
 
 | 版本 | 日期 | 变更 |
 |:---|:---|:---|
+| 1.2.0 | 2026-08-10 | 六次康复（skill-rehab 体检模式 + 盲审 B 实锤 2 项 P2，锴哥「按处方修」授权）：①**修 check_readiness CROSS 高频词误判**（原 L33 单字「也/和」是中文高频虚词，≥2 条 AI 行含即误判 conceptual，叙事版模板几乎不可达——盲审 F1 实测复现）→ 交叉信号改短语级（「其实这两件事/本质上是一回事」等），selftest 补 T4 反例 ②**修 check_readiness DONE 危机误判**（「可以了」与危机语境「可以了，不用管我了」重叠，危机语境误判画像就绪 exit 0——盲审 F2 实测复现）→ DONE 判定加 CRISIS 危机词负向排除（命中不算「说完了」），selftest 补 T5 反例 ③**修 check_readiness 格式报错不友好**（错误格式静默当未就绪，AI 无法自纠）→ 加格式预检（首行非 USER:/AI: 前缀 → 明确报格式错误 exit 2）④**§7.3 补危机检测显式留 AI 理由**（危机识别属对话内实时判断，关键词扫描必误伤语境，脚本化会误切/漏切——由 AI 对话内判断 + check_readiness 危机负向排除兜底）。回归：check_readiness selftest 5/5 + 评估器 149/149 S 零降分。备份 output/skill-rehab/best/confidant-v1.1.1-BASELINE/ |
 | 1.1.1 | 2026-08-06 | 五次康复（评估器 v5.0.0 + 设计评审实测驱动，锴哥「都改了」授权）：①**修 changelog 措辞避开禁区词**——v1.0.1/v1.1.0 记录含「实测驱动核查/陪伴≠专业干预」字面禁区词，泄漏进正文话术区致 check_safety 红线失守 exit=1（同 8-5 坑复发）→ 改措辞后 exit=0 ②frontmatter version 1.0.1→1.1.0（对齐变更记录，leader-translator 同款）③check_rag/check_readiness 补 `--selftest`（4+3 用例）。回归：check_safety exit=0 + 两脚本 selftest 全过 + 评估器 149/149 S 零降分。备份 output/backups/confidant_SKILL_v1.0.1_20260806_2335.md |
 | 0.1.0 | 2026-08-05 | 初版：骨架+双模式+分级响应+RAG+禁区 |
 | 0.2.0 | 2026-08-05 | 情绪画像收紧（聊到根因三条自检）；补充替代方案/安全声明/自检脚本 |

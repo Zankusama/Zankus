@@ -1,7 +1,7 @@
 ---
 name: leader-translator
 description: 领导翻译官（leader-translator）——围绕目标帮用户理清要做什么，并产出 AI 能直接执行的任务书。用户需求说不清、想法模糊、想让 AI 干活但反复返工、结果不满意时使用。流程：理清目标（产品/工具/内容/流程类先五层面定义）→ 能查的自己查 → 盲点扫描（AI 补盲清单）→ 选项式提问（每轮≤5个，全程≤15个）→ 产出 ≤4000 字符任务书（目标/地界/任务/验收/完成条件）→ 跑完验收（5 行内人话报告）。反馈不满意时也触发本 skill，用同一套澄清把「不对」逼成：哪里不对→差在哪→往哪改。触发词：任务书/写书/理清目标/领导翻译官/翻译官/leader/leader-translator/想法模糊/反复返工。NOT for 任务书的执行本身、纯闲聊——这些场景直接干活，不写书；需求清晰且简单（一句话说清目标+约束+验收）→ 直接答或给简化任务书，不走全流程。
-version: 5.11.0
+version: 5.12.0
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch
 compatibility: workbuddy, trae, qoder
 ---
@@ -115,6 +115,14 @@ compatibility: workbuddy, trae, qoder
 
 `--self` 模式（`goal-lint.sh --self SKILL.md`）体检 skill 本体，发布新版本前必跑。
 
+## 反馈闭环（真实使用 → 补测试用例，v5.12.0）
+
+本 skill 的进化靠**真实使用暴露的问题**回填测试集（评测驱动闭环最后一步），不是「测过就行」：
+
+- **使用中翻车 → 立刻补用例**：G1-G6 闸门误判、goal-lint/coverage-check/guard 行为异常、触发误判——凡是真实使用暴露的缺陷，修完**必须把复现场景固化成测试用例**（tests/behavior-*.md grep 断言或脚本回归），不许修完就忘。v5.10.0 G4 ⚠️ 误判、v5.12.0 各脚本修复均为实例——每个修复都有对应断言锁死。
+- **行为测试是回归底线**：`tests/behavior-leader-translator.md` 锁死关键机制（闸门/KANO/防作弊/来源必带/可逆性分级），改 SKILL.md 或脚本后先跑它确认机制没丢，再谈别的。
+- **诊断报告记录真实问题**：外部审计（skill-rehab 类）或实测发现的缺陷，按「在哪步发现→什么问题→怎么改」记录，修复履历进版本记录。
+
 ## 可机器化验收（脚本化声明）
 
 本 skill 的可机器化操作全部脚本化，AI 只编排不手算：
@@ -131,6 +139,8 @@ compatibility: workbuddy, trae, qoder
 - 防跳步由 stage-gate.sh 预检强制：G(N) 跑前先查 G(N-1) 产物存在，缺 = fail，回退重新物化
 
 ## 版本
+
+v5.12.0 | 2026-08-10 | **skill-rehab 治疗（双轮诊断交叉验证后全修，早轮 4 必修 + 本轮 P1/P2）**：①guard.sh 目录支持+不谎报（snapshot 目录算 dir_hash 真冻结、计数改实冻数而非入参、verify 目录指纹对比——早轮 P1-1 假绿灯根除）②coverage-check.sh ^ 锚定语义落地（头注释承诺的「带 ^ 行=必须以该字符串开头」此前 grep -qF 未实现）③stage-gate.sh G6 补调 coverage-check（SKILL.md 声称「自动调 goal-lint + coverage-check」此前 6) 分支零调用=文档承诺≠实现；现覆盖清单存在即强制、缺则豁免提示）④goal-lint.sh PROD_LINES 提取器排除命令行（`guard.sh snapshot output/hashes.txt` 含 output/ 被误判产物路径→4b/4c 死锁根除；代价=命令行内嵌 /Users/ 路径不再被 4c 拦截，属已知权衡：4c 管的是产物路径行，命令行路径由任务 0 实测兜底）⑤G4 ⚠️ 清零判定逐片段化（早轮 P1-4：v5.10.0 正则只认 12 字内紧贴六词，「⚠️ 项（3 个）已经在本轮全部拍板确认」等长完成态误判残留；现按 ⚠️ 片段正匹配完成态动词+负排除未决词——对抗复核补修：未决词用「还需/仍需」避免「无需/不需」误伤）⑥新增 tests/behavior-leader-translator.md 行为测试（23 断言锁死闸门/KANO/防作弊/来源必带/可逆性分级/各修复点）⑦SKILL.md 加「反馈闭环」段（真实使用→补测试用例路径显式化）⑧anatomy.md 节名格式澄清（任务书正文节名必须【】全角书名号，章节标题仅为文档目录，v2.6）+ 参考文档版本对齐。验证：G4 六场景/G6 双路径/coverage ^ 锚/guard 目录篡改抓出/goal-lint 死锁+防逃逸/behavior 23 断言全过 + goal-lint --self 全过 + 评估器 149/149 零降分 + 对抗复核 9/9 判定词满足。
 
 v5.11.0 | 2026-08-06 | **产物路径迁移 `.goal/` → `output/`**（锴哥"产物必须可见在工作区"原则：`.goal/` 是隐藏目录，领导找不到产物）：①SKILL.md/参考文献/examples 全部产物路径 `.goal/gate-N.txt`/`.goal/coverage.txt`/`.goal/PROGRESS.md` → `output/` 同构（anatomy.md「工作产物放哪」规则源头改：所有工作产物放工作区 `output/`，不用隐藏 `.goal/`）；②stage-gate.sh 产物锚定 `OUTPUT_ROOT`（默认=$(pwd)，产物=output/gate-N.txt，防 cwd 漂移）；③goal-lint.sh 产物路径校验改为 output/ 收（`.goal` 旧约定向后兼容接收不引导）+ 禁裸名/禁预埋/禁指 skill 本体不变；④coverage-check/guard.sh 文案同步；⑤`/goal` 是斜杠命令非路径，保留不变。基线 guard.sh snapshot 冻结。
 

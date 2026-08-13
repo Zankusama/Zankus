@@ -123,10 +123,19 @@ case "$STEP" in
     grep -qE '目前我听懂了的|我理解到' "$FILE" || fail "提问记录没有「目前我听懂了的」小结——逐轮确认缺失，回步骤 4"
     # ⚠️ 项必须清零（被提问解决或被默认值覆盖）
     # v5.10.0 修复：字符级误判——"⚠️ 已清零"这类完成态说明含 ⚠️ 字样，grep -qE '⚠️' 会误判未清零。
-    # 改为：剔除完成态表述（已清零/已确认/已解决/已处理/已拍板/已定）后，仍有 ⚠️ 才算残留。
-    RESIDUAL=$(grep -oE '⚠️' "$FILE" | wc -l | tr -d ' ')
-    DONE_MENTIONS=$(grep -oE '⚠️[^，。；\n]{0,12}(已清零|已确认|已解决|已处理|已拍板|已定)' "$FILE" | wc -l | tr -d ' ')
-    RESIDUAL=$((RESIDUAL - DONE_MENTIONS))
+    # v5.12.0 修复（早轮实测抓出）：v5.10.0 正则 ⚠️[^，。；]{0,12}(已清零|已确认|…) 只认 12 字内紧贴六词，
+    #   「⚠️ 项（3 个）已经在本轮全部拍板确认」等完成态表述超 12 字被误判为残留（假失败）。
+    #   改为逐片段判定：每段 ⚠️ 内容，含完成态动词（拍板/已X）且不含未决词（待/需/未/还没/尚未/留待）= 完成态；否则残留。
+    RESIDUAL=0
+    while IFS= read -r seg; do
+      [ -z "$seg" ] && continue
+      if printf '%s' "$seg" | grep -qE '拍板|已清零|已确认|已解决|已处理|已定|已答复|已决定|已落实' \
+         && ! printf '%s' "$seg" | grep -qE '还需|仍需|待|还没|尚未|留待|未决|未定'; then
+        : # 完成态表述，不算残留
+      else
+        RESIDUAL=$((RESIDUAL+1))
+      fi
+    done < <(grep -oE '⚠️[^⚠️]*' "$FILE")
     if [ "$RESIDUAL" -gt 0 ]; then
       fail "提问记录仍有 ⚠️（需领导决策）项未清零（残留 ${RESIDUAL} 处）——没问完或不许带未决项进写书，回步骤 4"
     else
@@ -175,6 +184,15 @@ case "$STEP" in
     "$SKILL_DIR/scripts/acceptance-check.sh" "$BOOK" \
       && pass "验收三问自检过（①出处 ②防凑数 ③风险定档）" \
       || fail "验收三问有不过——修完再发出"
+    # 6e. 覆盖清单核对（防偷删）——v5.12.0 修复：SKILL.md 声称「自动调 goal-lint + coverage-check」，此前 6) 分支漏调 coverage-check（文档承诺≠实现）
+    COVERAGE_FILE="${GATE_DIR}/coverage.txt"
+    if [ -f "$COVERAGE_FILE" ]; then
+      "$SKILL_DIR/scripts/coverage-check.sh" "$COVERAGE_FILE" "$BOOK" \
+        && pass "coverage-check 全过（覆盖清单要点全部命中，防偷删）" \
+        || fail "coverage-check 有遗漏——漏点=偷删嫌疑，修完再发出"
+    else
+      echo "⚠️ [闸门 G6] 未发现覆盖清单 ${COVERAGE_FILE}——coverage-check 跳过（写书规则要求先物化覆盖清单；简化任务书可豁免，领导确认即可）"
+    fi
     exit 0
     ;;
   *)
