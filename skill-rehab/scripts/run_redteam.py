@@ -19,6 +19,7 @@ run_redteam.py — 已知盲区召回检测器（保底闸 A · 确定性 · 不
   GATE_CONTRADICTION  同文档同时出现「四闸门」与「五闸门」（计数矛盾）
   CWD_CONFLICT         诊断命令同时含相对 scripts/ 调用 + --output output/（cwd 互斥）
   ABSOLUTE_OUTPUT_PATH --output 后跟绝对路径（违反死规矩5 + v1.8.3 修复）
+  GREP_DIALECT         测试/脚本依赖 GNU BRE 的 \\|（无 -E），BSD/GNU/toybox/busybox 方言不一致（2026-09-01 三方实测：toybox 不认 \\| → 测试假红假绿）
 """
 import os
 import re
@@ -34,6 +35,7 @@ SEVERITY = {
     "ABSOLUTE_OUTPUT_PATH": "P0",
     "GATE_CONTRADICTION": "P1",
     "CWD_CONFLICT": "P1",
+    "GREP_DIALECT": "P1",
 }
 
 # unix 绝对路径须 ≥2 段真实路径（/Users/zankus/WorkBuddy 才抓；/Users/xxx 占位示例不抓，避免命中禁令本身的举例文字）
@@ -48,6 +50,8 @@ GATE_5_RE = re.compile(r"五闸门")
 REL_SCRIPT_RE = re.compile(r"scripts/\w+\.py")
 OUTPUT_REL_RE = re.compile(r"--output\s+\S*output/")
 OUTPUT_ABS_RE = re.compile(r"--output\s+(/|\w:\\|~/)")
+# grep 无 -E/-e 且引号内带 \| → 依赖 GNU BRE 方言（BSD/toybox/busybox 行为不一致）
+GREP_PIPE_RE = re.compile(r"grep\s+(?!-E\b|-e\b)[^\"'\n]*[\"'][^\"']*\\\|")
 
 
 def scan_target(target_dir: str) -> list:
@@ -56,7 +60,7 @@ def scan_target(target_dir: str) -> list:
     for root, dirs, files in os.walk(target_dir):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
         for fn in files:
-            if not fn.endswith(".md"):
+            if not fn.endswith((".md", ".sh")):
                 continue
             fp = os.path.join(root, fn)
             try:
@@ -79,6 +83,11 @@ def scan_target(target_dir: str) -> list:
             for m in OUTPUT_ABS_RE.finditer(text):
                 ln = text.count("\n", 0, m.start()) + 1
                 findings.append(("ABSOLUTE_OUTPUT_PATH", fp, ln, m.group(0).strip()))
+                break
+            # GREP_DIALECT（grep 无 -E 却用 \|）
+            for m in GREP_PIPE_RE.finditer(text):
+                ln = text.count("\n", 0, m.start()) + 1
+                findings.append(("GREP_DIALECT", fp, ln, m.group(0).strip()[:60]))
                 break
     return findings
 

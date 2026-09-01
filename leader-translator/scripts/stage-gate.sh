@@ -42,6 +42,27 @@ if [ "$STEP" -ge 2 ] && [ "$STEP" -le 4 ]; then
   fi
 fi
 
+# === v5.13.1 未知登记簿检查（结果验收范式）：不验「查没查」的动作，验「探明了没」的证据链 ===
+if [ "$STEP" -ge 1 ] && [ "$STEP" -le 4 ]; then
+  U="${GATE_DIR}/unknowns.md"
+  if [ ! -f "$U" ]; then
+    fail "缺未知登记簿 ${U}——发现即登记是死规矩（未知散落对话流=无人跟踪），新建 output/unknowns.md 登记全部已知未知后重跑"
+  fi
+  # ① 白名单状态机（根治逃逸与假阳性）：数据行状态字段只允许 已裁决/BLOCKED 二值，其余一律拦下
+  BADLINES=$(grep -nE '^[Uu][0-9]+' "$U" | grep -vE '(已裁决|BLOCKED)' || true)
+  if [ -n "$BADLINES" ]; then
+    echo "${BADLINES}" | head -5 | sed 's/^/    行: /'
+    fail "未知登记簿有 $(printf '%s\n' "${BADLINES}" | wc -l | tr -d ' ') 条数据行状态不在白名单（合法仅两值：已裁决｜BLOCKED）——M 型行「已裁决」必须同行带证据锚点（URL/本地路径/领导拍板记录），O 型标(默认·猜的)，见 references/unknowns-template.md"
+  fi
+  # ② M 行证据锚点强制（探明白的机器代理）：KANO=M 且状态=已裁决 的行，同行必须有 URL/文件路径/拍板 三者之一
+  UNANCHORED=$(grep -E '^[Uu][0-9]+.*\| *M *\|' "$U" | grep -E '已裁决' | grep -vE 'http|/Users/|~/|\.md|\.txt|\.png|拍板|默认·猜的' || true)
+  if [ -n "$UNANCHORED" ]; then
+    echo "${UNANCHORED}" | head -5 | sed 's/^/    行: /'
+    fail "未知登记簿有 M 型已裁决行缺证据锚点（上列）——没有来源 URL/本地文件路径/领导拍板记录 = 没探明就结案 = 作弊式收敛；补齐证据或改回未决路线后重跑"
+  fi
+  pass "未知登记簿结果验收（v5.13.1）：白名单状态 + M 行证据锚点全过"
+fi
+
 case "$STEP" in
   1)
     [ -f "$FILE" ] || fail "缺 output/gate-1.txt（五层面答案，每行一层：给谁用/解决什么/形态/画面/禁区）"
@@ -83,6 +104,16 @@ case "$STEP" in
     else
       pass "🔍 项已清零（能联网查的都查了）"
     fi
+    # ④ v5.13.1 穷尽三查（结果验收）：三小节齐 + 缺口每条带归宿（→G2补查/→G3盲区/→G4候选 或 登记 ID）——自查发现不许烂在块里
+    for sec in "查一·目标反推" "查二·实体矩阵" "查三·反方预演"; do
+      grep -q "$sec" "$FILE" || fail "穷尽三查缺「$sec」小节——三查是工作方法、登记簿才是真相源；按模板补全三小节后重跑"
+    done
+    ORPHANS=$(grep -E '^查[一二三]' "$FILE" | grep -vE '→G2补查|→G3盲区|→G4候选|\[[Uu][0-9]+\]|无新缺口|全部覆盖|空格0|全采集|diff 结果: 0' || true)
+    if [ -n "$ORPHANS" ]; then
+      echo "${ORPHANS}" | head -3 | sed 's/^/    未归宿: /'
+      fail "穷尽三查有缺口未标注归宿（→G2补查/→G3盲区/→G4候选 或登记ID）——查出来的东西必须落地跟踪，不许烂在自查块里"
+    fi
+    pass "穷尽三查结果验收：三小节齐 + 缺口全部有归宿"
     ;;
   3)
     [ -f "$FILE" ] || fail "缺 output/gate-3.txt（补盲清单）"
@@ -152,6 +183,15 @@ case "$STEP" in
       fail "提问记录缺 KANO 分类声明（清点 N 个未知：M 全处理/O 已默认/A 已归档/I 已扔/R 已禁）——没问的不许静默消失，回步骤 4 补声明"
     fi
     pass "提问分类清点通过（小结 + 内部常识 + KANO 分类声明 + ⚠️ 清零）"
+    # v5.13.1 穷尽三查（收口前独立 diff）：同 G2 的结果验收口径——三小节齐 + 发现全部归宿化
+    for sec in "查一·目标反推" "查二·实体矩阵" "查三·反方预演"; do
+      grep -q "$sec" "$FILE" || fail "提问记录的穷尽三查缺「$sec」小节——该问没问的不许悄悄溜走，按模板补全后重跑"
+    done
+    ORPHANS=$(grep -E '^查[一二三]' "$FILE" | grep -vE '→G2补查|→G3盲区|→G4候选|\[[Uu][0-9]+\]|无新缺口|全部覆盖|空格0|全采集|diff 结果: 0' || true)
+    if [ -n "$ORPHANS" ]; then
+      fail "穷尽三查有缺口未标注归宿（上同 G2 口径）——收口前的独立 diff 结果必须逐条落地，回步骤 4 补齐"
+    fi
+    pass "穷尽三查结果验收（收口前独立 diff 完成）"
     ;;
   5)
     echo "🟡 [闸门 G5 写书前] 人工检查——领导在对话里看图 + 文字骨架，逐项确认："
@@ -170,6 +210,22 @@ case "$STEP" in
       exit 1
     fi
     echo "===== [闸门 G6] 写书后检查 ====="
+    # 60. v5.13.1 登记簿终局对账：写书过程可能冒出新未知/供料变化——最后一道自动防线必须看账本
+    U="${GATE_DIR}/unknowns.md"
+    if [ -f "$U" ]; then
+      BADLINES=$(grep -nE '^[Uu][0-9]+' "$U" | grep -vE '(已裁决|BLOCKED)' || true)
+      if [ -n "$BADLINES" ]; then
+        echo "${BADLINES}" | head -5 | sed 's/^/    行: /'
+        fail "发出前终局对账失败：登记簿仍有状态越界行（合法仅 已裁决｜BLOCKED）——写书期间冒出的未知也要归位，处理后重跑"
+      fi
+      UNANCHORED=$(grep -E '^[Uu][0-9]+.*\| *M *\|' "$U" | grep -E '已裁决' | grep -vE 'http|/Users/|~/|\.md|\.txt|\.png|拍板|默认·猜的' || true)
+      if [ -n "$UNANCHORED" ]; then
+        fail "发出前终局对账失败：M 型已裁决行缺证据锚点（同 G1-G4 口径）"
+      fi
+      pass "登记簿终局对账过（写书期间无新增未决/无证据缺失）"
+    else
+      echo "⚠️ [闸门 G6] 找不到 unknowns.md——跳过终局对账（历史工作区兼容，人工确认无未跟踪未知即可）"
+    fi
     # 6a. goal-lint 全过
     "$SKILL_DIR/scripts/goal-lint.sh" "$BOOK" > /dev/null 2>&1 \
       && pass "goal-lint 全过" \
