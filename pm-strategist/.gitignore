@@ -1,0 +1,11 @@
+# 运行时产物 / 本机私有文件，不入库（上传 GitHub 前自检：scripts/pre-publish-check.sh）
+.blocklist.local
+*.log
+DR-*.md
+__pycache__/
+*.pyc
+.snapshots/
+.DS_Store
+
+# 注意：config/local_profile.md 是“预置空模板”，故意入库随包分发；
+# 它必须保持全空（【待固化】占位），若本机已填写，pre-publish-check 会 FAIL 提醒，切勿提交填写版。
