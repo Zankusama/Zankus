@@ -1,5 +1,5 @@
 #!/bin/bash
-# tests/test-scripts.sh — 8 脚本批量功能测试（exit 0=全绿，1=有红）
+# tests/test-scripts.sh — 10 脚本批量功能测试（exit 0=全绿，1=有红）
 # 每脚本：--help 退出码0 + --self 退出码0 + 指定样例行为断言
 set -u
 S="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,10 +10,10 @@ bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 
-echo "== test-scripts.sh：8 脚本功能测试 =="
+echo "== test-scripts.sh：10 脚本功能测试 =="
 
 # ---------- 通用：help + self + def 数 ----------
-for f in check_output.py scene-router.py stage-gate-check.py decision-record.py risk-check.py unknown-info-check.py priority-calc.py kano-classify.py; do
+for f in check_output.py scene-router.py stage-gate-check.py decision-record.py risk-check.py unknown-info-check.py priority-calc.py kano-classify.py calc-pricing.py profile-check.py; do
   if python3 "$SC/$f" --help >/dev/null 2>&1; then ok "$f --help 退出码0"; else bad "$f --help"; fi
   if python3 "$SC/$f" --self >/dev/null 2>&1; then ok "$f --self 通过"; else bad "$f --self"; fi
   n=$(grep -c "def " "$SC/$f")
@@ -31,7 +31,7 @@ cat > "$T/good.md" <<'EOF'
 6. 数据需求引导：补竞品成交价与支付意愿数据
 # DR-20260831-p2-price
 - 问题：[示例占位]A品上市定什么价
-- 选项：中价格带上沿 / 低价渗透 / 维持现价
+- 选项：中价格带上沿 / 低价渗透 / 维持现状（含不做）
 - 决定：推荐中价格带上沿
 - 依据：ref-04 3C定价与价格带分析
 - 反方意见：竞品若同步降价则渗透逻辑失效
@@ -78,7 +78,7 @@ if python3 "$SC/decision-record.py" --template | grep -q "假设清单" && pytho
 printf '问题：A品要不要涨价\n' > "$T/miss.txt"
 if python3 "$SC/decision-record.py" "$T/miss.txt" >/dev/null 2>&1; then bad "decision-record 缺必填未拦截"; else ok "decision-record 缺选项/决定 退出1"; fi
 printf '问题：A品要不要涨价\n选项：涨/不涨（含维持现状）\n决定：推荐小步涨\n' > "$T/ok.txt"
-if python3 "$SC/decision-record.py" "$T/ok.txt" >/dev/null 2>&1; then ok "decision-record 必填齐 退出0"; else bad "decision-record 合法样本误报"; fi
+if python3 "$SC/decision-record.py" "$T/ok.txt" --out "$T/drout" >/dev/null 2>&1; then ok "decision-record 必填齐 退出0"; else bad "decision-record 合法样本误报"; fi
 
 # ---------- 5 risk-check.py ----------
 cat > "$T/risk_good.txt" <<'EOF'
@@ -104,6 +104,11 @@ if python3 "$SC/priority-calc.py" --method rice --input "$T/bad.json" >/dev/null
 if python3 "$SC/kano-classify.py" --pos 喜欢 --neg 不喜欢 | grep -q "期望"; then ok "kano 喜欢×不喜欢=期望"; else bad "kano 期望样例"; fi
 if python3 "$SC/kano-classify.py" --pos 理应如此 --neg 不喜欢 | grep -q "基本"; then ok "kano 理应如此×不喜欢=基本"; else bad "kano 基本样例"; fi
 if python3 "$SC/kano-classify.py" --pos 理应如此 --neg 喜欢 | grep -q "反向"; then ok "kano 理应如此×喜欢=反向"; else bad "kano 反向样例"; fi
+
+# ---------- 9 calc-pricing.py / profile-check.py（治理新增，总案 D' / 闸口C/H） ----------
+if python3 "$SC/calc-pricing.py" --demo | grep -q "真实毛利"; then ok "calc-pricing demo 渠道扣减层输出"; else bad "calc-pricing demo"; fi
+if python3 "$SC/calc-pricing.py" --price 59 >/dev/null 2>&1; then bad "calc-pricing 缺输入未拒算"; else ok "calc-pricing 缺输入拒算（退出2）"; fi
+if python3 "$SC/profile-check.py" --profile "$S/config/local_profile.md" >/dev/null 2>&1; then bad "profile-check 占位模板未拦"; else ok "profile-check 占位模板拦截（退出1）"; fi
 
 echo "═══════════════════════════"
 echo "test-scripts 结果：$PASS 通过，$FAIL 失败"

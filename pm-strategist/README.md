@@ -1,40 +1,72 @@
 # pm-strategist · 产品军师
 
-帮 PM 在真实业务场景下做决策：判可逆性 → 用户先说判断 → 五场景路由（S1-S5/C类）选框架 → 输出含依据与反方的建议6要素 → 3 轮熔断收敛为决策记录。决策是目的，方法论只是弹药。
+帮 PM 在真实业务场景下做决策：判可逆性 → 决策原语路由（动作×对象 → 25 格矩阵归位，闸口 A 确认）→ 双轨分流（用户先说判断）→ 五场景装弹药 → 涉算账必调 calc-pricing.py（含渠道费用与返利扣减层）→ 3 轮熔断收敛为决策记录（可落自包含 HTML 单文件）。决策是目的，方法论只是弹药。
+
+> **测试版声明**：v4.1.x 为治理升级版（四轮对抗评审 + 自动化测试协议 + 康复治疗）；机制经过 golden/四态/D'/算账护栏回归，真人反馈样本仍少——使用中请按文末反馈模板回话。
+
+## 覆盖边界披露（先读再用）
+
+- **擅长**：快消 PM 的产品决策——新品立项/组合取舍/生命周期迭代/定价盈利/上市 GTM；风险与反方结构化；决策留痕复盘。
+- **不擅长**：品牌战略本体（走跨域拆解出口+Aaker 谱系转介）、深度财务建模、组织人事决策、执行类文案。
+- **C 类边界**：不构成完整决策的问题只做组件级提醒（只提醒不决策）。
+- **质量下限 ≠ 判断力**：闸口与 D' 校验器只保证"选项含不做/反方可证伪/风险不空转/依据有出处/已定须拍板原文"等**质量下限**；判断力的胜负手在用户自带的业务判断——本 skill 不夸大这一条。
 
 ## 安装
 
-权威源即本目录。把本目录放到（或软链接到）目标客户端的 skills/ 目录即可，例如：
+本 skill 是**一个纯本地目录**（含 SKILL.md 的那个），装到目标客户端的 skills/ 目录即可——软链接或复制二选一。零第三方依赖、零联网，对客户端无特殊要求。
+
+**软链接**（改本目录即时生效，多处共用一份；⚠️ 删客户端目录前先删软链接，否则会连带删源）：
 
 ```bash
-ln -s <本目录的绝对路径> ~/.workbuddy/skills/pm-strategist
+SKILL_DIR="$(pwd)"   # 假设当前已在包含 SKILL.md 的本 skill 根目录
+ln -s "$SKILL_DIR" "<你的客户端 skills 目录>/pm-strategist"
 ```
 
-各客户端的 skills 目录位置不同，按其文档放置；本技能为纯本地文件，无需联网、无需安装第三方依赖。
+**复制**（各客户端独立，改动不回流，最稳妥）：
 
-> ⚠️ 本包含 `config/local_profile.md`（行业身份层，预置空模板）。若将本技能包分享给他人，请先排除或清空 config/ 目录，避免带入个人品牌信息。
+```bash
+cp -R "$(pwd)" "<你的客户端 skills 目录>/pm-strategist"
+```
+
+常见客户端 skills 目录（按需取用其一即可，不必全装；以你所用客户端的文档/实际路径为准）：
+
+| 客户端 | skills 目录（默认） |
+|---|---|
+| WorkBuddy | `~/.workbuddy/skills/` |
+| Trae | `~/.trae-cn/skills/` |
+| Qoder | `~/.qoder/skills/` |
+| QwenWork | `~/.qwenworkcn/skills/` |
+| QoderWork | `~/.qoderworkcn/skills/` |
+| AutoClaw | `~/.openclaw-autoclaw/skills/` |
+
+> 多客户端共用一份源码时，用软链接方式安装（见上），各客户端改动即时同源；想批量挂载可自行写一个软链接脚本。
+
+> ⚠️ 包内 `config/local_profile.md` 是**预置空模板**；真实前提库存在包外（`--profile` 或环境变量 `PM_STRATEGIST_PROFILE`，默认 `~/.workbuddy/pm-strategist/profile.md`），不随包分发。DR 落盘默认 `./决策记录/`（运行时产物，分享前清空）。
 
 ## 使用
 
-对它说：新品评估 / 产品决策 / 帮我决策 / 该不该做 / 怎么取舍 / 值不值得做 / 优先做哪个 / 定价 / 上市 / 复盘……（完整触发词见 SKILL.md description）。
+对它说：新品评估 / 产品决策 / 帮我决策 / 该不该做 / 怎么取舍 / 值不值得做 / 优先做哪个 / 定价 / 涨价 / 促销 / 大促 / 上市 / 渠道 / 经销商 / 库存 / 清仓 / 临期 / 窜货 / 进场费 / 品牌重新定位 / 品牌架构 / 复盘 / 生意三问……（完整触发词见 SKILL.md description）。半成形表达也接："我有个想法你帮我看看"。
 NOT for：「为什么/根因」类归因分析、需求澄清与任务书撰写、纯闲聊、纯代码编辑。
 
 ## 测试与验收
 
 ```bash
-bash tests/run_tests.sh                  # 结构+触发+红线用例（退出码 0=全绿）
-python3 scripts/check_output.py --self   # 输出不变量校验器自检
+bash tests/run_tests.sh                  # 结构+触发+红线+golden+四态+D'+DR-HTML+算账护栏（退出码 0=全绿）
+bash tests/test-scripts.sh               # 10 脚本功能测试
+python3 scripts/scene-router.py --self   # 路由器自检（golden G1-G5+四态12例）
+python3 scripts/calc-pricing.py --self   # 算账器自检（B5 渠道扣减层+护栏3条）
+python3 scripts/profile-check.py --self  # 闸口C 自检（确认戳+90天重验）
+python3 scripts/decision-record.py --self # DR 自检（HTML 单文件+决策链+快轨橙标）
+python3 scripts/check_output.py --self   # 输出校验+D'质量下限4+2断言
 ```
 
-运行时机器化验收（「可机器化验收」节，详见 SKILL.md）：
-```bash
-python3 scripts/scene-router.py --self   # 场景路由自检
-python3 scripts/kano-classify.py --self  # KANO 分类自检
-python3 scripts/decision-record.py --self  # 决策记录自检
-python3 scripts/risk-check.py --help     # 风险6维度复核
-python3 scripts/stage-gate-check.py --help  # 五闸过闸检查
-python3 scripts/unknown-info-check.py --help  # 盲区/未知信息检查
-```
+## 反馈模板（5 问，欢迎逐条回答）
+
+1. 这次帮到你了吗？（帮到 / 没帮到 / 部分）
+2. 哪一步最有用？（归位 / 约束卡 / 算账 / 反方 / DR 落盘…）
+3. 哪一步没用或碍事？
+4. 缺什么数据或工具？
+5. 下次你会为哪类决策再来（或不再来）？
 
 ## 依赖
 
@@ -42,4 +74,11 @@ python3 scripts/unknown-info-check.py --help  # 盲区/未知信息检查
 
 ## 版本
 
-v3.2.0（2026-09-01）｜ 版本号以 SKILL.md frontmatter 为唯一准
+v4.1.2（2026-09-03）｜ 版本号以 SKILL.md frontmatter 为唯一准。
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| v4.1.2 | 2026-09-03 | 上传前发布卫生：README 去除本机内部机制引用（同步脚本与目录结构）；上传自检的版本一致性放行「版本记录」表（显式变更史非口径残留） |
+| v4.1.1 | 2026-09-03 | 满分级评审补齐：①确定性护栏声明（无外部副作用不挂 hook，等价由脚本非零退出实现）②设计取舍段（为什么不选 checklist/无对照推荐/稻草人反方）③SKILL.md 版本指针（变更史收 README） |
+| v4.1.0 | 2026-09-03 | ①脚本调用路径约定（`$SKILL_DIR` 前缀，修异地 cwd 下命令必炸）②D'-③ 反方意见升级为双要素判定（稻草人必拦，并回一条填写模板）③快轨闸门豁免清单仲裁（消解"只跑4件"与闸口总表的冲突） |
+| v4.0.0 | 2026-09-02 | 治理升级：四轮对抗评审 + 自动化测试协议（golden/四态/D'/算账护栏） |

@@ -28,6 +28,17 @@ RISK_DIMS = {
     "组织": ["组织", "人力", "团队", "人员", "排产", "培训"],
 }
 B_TAGS = {"S4": "最终定价决策需跨部门确认", "S5": "最终上市决策需跨部门确认"}
+# D'-③ 反方意见双要素：①具体条件（什么事实成立）②可反驳出口（推翻/失效/推翻条件=…）
+# 只写连接词（"如果可能市场不好吧"）＝稻草人，等于没有反方——两要素缺一即拦。
+CON_RE = r"如果|若|一旦|假如|前提是|除非|当.{0,6}(时|成立|发生|出现)|在.{0,10}情况下"
+# ①条件句式无"若/如果"但用"则/将/导致"连接（如"竞品同步降价则渗透策略失效"）
+TRIGGER_RE = r"则|就会|将会|导致|使得|造成|引发|即|一.{0,4}就"
+# ②出口·强失效语义（本决定/方案失效）
+FALSIFY_STRONG = (r"推翻|证伪|不成立|失效|站不住|需重估|需重做|重算|落空|白做|白费|前功尽弃|"
+                  r"泡汤|打水漂|适得其反|得不偿失|弄巧成拙|反噬|不再成立|改变.{0,4}结论|"
+                  r"推翻条件|什么数据|什么条件|什么信号")
+# ②出口·决定否定语义（"砍错/做错"= 本决定被证伪的自然表达）
+FALSIFY_NEG = r"砍错|做错|误判|误杀|错杀|判断失误|决策失误|证明.{0,6}错|说明.{0,6}错|压根不该|不该砍|不该做"
 ADVICE6 = {
     "选项(含不做/维持现状)": r"选项|方案",
     "推荐倾向": r"推荐|倾向",
@@ -80,6 +91,39 @@ def check_dr(text):
         bad = [l for l in lines if not l.strip().startswith("⚠️")]
         if bad:
             problems.append("假设清单 %d 条未带 ⚠️ 前缀（首条: %s）" % (len(bad), bad[0].strip()[:30]))
+    # ---- D' 质量下限 4+2 断言（总案 §2.7/P1-B：修"绿灯幻觉"，保质量下限非判断力） ----
+    opt = field_value(text, "选项：") or ""
+    if opt and ("不做" not in opt and "维持现状" not in opt):
+        problems.append("D'-① 选项未含「不做/维持现状」对照项（不做是每个决策的真实备选）")
+    dec = field_value(text, "决定：") or ""
+    if "已定" in (field_value(text, "状态：") or "") and "用户拍板：" not in dec:
+        problems.append("D'-② 状态已定但决定字段无「用户拍板：」原文（闸口 B：无拍板原文不得写已定）")
+    con = (field_value(text, "反方意见：") or "").strip()
+    if not con or con.startswith("无"):
+        problems.append("D'-③ 反方意见为空/「无」——反方非空且必须具体到可反驳")
+    else:
+        # 三通道判定：条件句式/因果句式 × 出口（强失效或决定否定），任一组合满足即非稻草人
+        out_ok = bool(re.search(FALSIFY_STRONG, con)) or bool(re.search(FALSIFY_NEG, con))
+        ok_cond = bool(re.search(CON_RE, con)) and out_ok
+        ok_trigger = bool(re.search(TRIGGER_RE, con)) and out_ok
+        if not (ok_cond or ok_trigger):
+            miss = []
+            if not (bool(re.search(CON_RE, con)) or bool(re.search(TRIGGER_RE, con))):
+                miss.append("①具体条件（若/一旦/竞品降价则…，什么事实成立）")
+            if not out_ok:
+                miss.append("②可反驳出口（本决定 失效/被推翻/砍错/做错，或推翻条件=拿到<什么数据>）")
+            problems.append("D'-③ 反方意见是稻草人（缺 " + "、".join(miss) + "）——"
+                            "模板：若<什么事实成立>，则本决定<失效/需重估/砍错>；推翻条件=拿到<什么数据>｜"
+                            "例：若渠道合约含条码数门槛，砍SKU将导致进场筹码下降；推翻条件=拿到各SKU条码贡献的渠道合约条款｜"
+                            "可过写法：①若…则砍错 ②竞品降价则渗透失效 ③推翻条件=拿到…数据")
+    riskv = (field_value(text, "风险：") or "").strip()
+    if riskv:
+        segs = [x for x in re.split(r"[；;\n]", riskv) if x.strip()]
+        if segs and all("未命中" in x for x in segs):
+            problems.append("D'-④ 风险全部「未命中」——至少 1 个真实风险点，或诚实论证为何全未命中")
+    basis = (field_value(text, "依据：") or "").strip()
+    if basis and not re.search(r"ref-0[1-6]|fm-0[1-6]", basis):
+        problems.append("D'-⑤ 依据缺 ref/fm 引用格式（应标注 ref-0X/fm-0X 哪条）")
     return problems
 
 
@@ -157,9 +201,29 @@ def self_test():
     ok = not check_full(good)
     caught = len(check_full(bad)) >= 3
     dr_ok = not check_dr(good)
-    print("self: 完整好样本 %s（期望PASS）；坏样本拦截 %d 处（期望≥3）；DR结构 %s" % (
-        "PASS✓" if ok else "FAIL✗", len(check_full(bad)), "PASS✓" if dr_ok else "FAIL✗"))
-    return ok and caught and dr_ok
+    zeroq = """# DR-20260902-zero
+- 问题：示例占位
+- 选项：A方案
+- 决定：就这么干
+- 依据：感觉不错
+- 反方意见：无
+- 风险：法规：未命中；市场：未命中；竞争：未命中；供应链：未命中；财务：未命中；组织：未命中
+- 假设清单：
+无——输入已全部确认
+- 复盘日期：2026-12-31
+- 状态：已定
+"""
+    zero_problems = check_dr(zeroq)
+    zero_ok = len(zero_problems) >= 4
+    # 稻草人反方必拦（"如果…吧"只有连接词、无可反驳出口）
+    straw = good.replace("- 反方意见：竞品若同步降价则渗透逻辑失效——看竞品周跟踪",
+                         "- 反方意见：如果可能市场不好吧")
+    straw_caught = any("D'-③" in p for p in check_dr(straw))
+    print("self: 完整好样本 %s（期望PASS）；坏样本拦截 %d 处（期望≥3）；DR结构 %s；零质量DR拦截 %d 项（期望≥4）%s；稻草人反方拦截 %s" % (
+        "PASS✓" if ok else "FAIL✗", len(check_full(bad)), "PASS✓" if dr_ok else "FAIL✗",
+        len(zero_problems), "✓" if zero_ok else "✗",
+        "✓" if straw_caught else "✗ 未拦住（判定失效）"))
+    return ok and caught and dr_ok and zero_ok and straw_caught
 
 
 def main():
@@ -184,7 +248,7 @@ def main():
         for x in problems:
             print("  ❌ " + x)
         return 1
-    print("PASS — 5场景/可逆性/建议6要素/风险6维度/DR9字段/收敛终端 齐全")
+    print("PASS — 5场景/可逆性/建议6要素/风险6维度/DR9字段/D'质量下限(4+2)/收敛终端 齐全")
     return 0
 
 

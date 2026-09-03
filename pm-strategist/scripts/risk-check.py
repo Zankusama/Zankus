@@ -29,17 +29,14 @@ def covered(text, kws):
     return [k for k in kws if k in text]
 
 
-def declared_miss(text, dim):
-    return ("未命中" in text) and any(("%s：未命中" % dim) in text or ("%s:未命中" % dim) in text for _ in [0])
-
-
 def check(text):
     covered_map, missing = {}, []
     for dim, kws in DIMS.items():
         hits = covered(text, kws)
         if hits:
             covered_map[dim] = hits
-        elif declared_miss(text, dim):
+        elif ("%s：未命中" % dim) in text or ("%s:未命中" % dim) in text:
+            # 未命中显式声明豁免（N7 死代码清理：原独立函数已内联，行为不变）
             covered_map[dim] = ["（作者显式声明未命中）"]
         else:
             missing.append(dim)

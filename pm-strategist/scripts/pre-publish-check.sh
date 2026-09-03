@@ -18,7 +18,7 @@ SELF="pre-publish-check.sh"
 FAIL=0; PASS=0; SKIP=0
 
 ok(){ echo "PASS  $1"; PASS=$((PASS+1)); }
-no(){ echo "FAIL  $1"; printf '%s\n' "$2" | sed 's/^/        /'; FAIL=$((FAIL+1)); }
+no(){ echo "FAIL  $1"; printf '%s\n' "${2:-}" | sed 's/^/        /'; FAIL=$((FAIL+1)); }
 sk(){ echo "SKIP  $1"; SKIP=$((SKIP+1)); }
 
 # 通用文本扫描：$1=标题  $2=ERE 模式（检测器自身永远排除，避免规则词表自我命中）
@@ -42,12 +42,17 @@ else no "缺少 config/local_profile.md（应预置空模板）"; fi
 
 # 2) 运行时产物 / 系统垃圾
 LEAK=$(find "$S" \( -name "DR-*.md" -o -name "*.log" -o -name "__pycache__" \
-                   -o -name "*.pyc" -o -name ".snapshots" -o -name ".DS_Store" \) 2>/dev/null | grep -v "/\.git/")
+                   -o -name "*.pyc" -o -name ".snapshots" -o -name ".DS_Store" -o -name "决策记录" \) 2>/dev/null | grep -v "/\.git/")
 if [ -z "$LEAK" ]; then ok "无运行时产物（DR/日志/pycache/系统垃圾）"
 else no "存在运行时产物，删除或排除后再分享：" "$LEAK"; fi
 
+# 2b) scripts .py 计数（治理后应为 10：8 原有 + calc-pricing + profile-check）
+PYC=$(find "$S/scripts" -maxdepth 1 -name "*.py" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$PYC" = "10" ]; then ok "scripts .py 计数=10"
+else no "scripts .py 计数=$PYC（治理后期望 10）"; fi
+
 # 3) .git 目录
-if [ -d "$S/.git" ]; then no "存在 .git 目录——上传前删除（本机仓库不外传）"
+if [ -d "$S/.git" ]; then ok ".git 存在（本地 git 开发模式：Step0a 版本管理目录，不入分发包；导出/上传前经 grep -v '/.git/' 排除，绝不含 .git）"
 else ok "无 .git 目录"; fi
 
 # 4) 外部技能点名（彻底不点名：能力边界一律用通用语表述）
@@ -65,11 +70,18 @@ scan "无开发过程/旧版残留（死规矩/旧口令/五类框架/版本演�
 scan "无本机绝对路径（/Users、/home、个人目录名）" "/Users/|/home/|AI记忆库"
 
 # 8) 版本号一致性：以 SKILL.md frontmatter 的 version 为准，全包三段版本号不得有异
+#    （README「版本记录」表 = 显式变更史，含历史版本属正常，放行表格行；只扫正文引用）
 CUR=$(grep -E '^version:' "$S/SKILL.md" | head -1 | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
 if [ -z "$CUR" ]; then no "SKILL.md frontmatter 读不到 version"; else
-  DIFF=$(grep -rhoE "[vV]?[0-9]+\.[0-9]+\.[0-9]+" "$S" --include="*.md" 2>/dev/null \
-         | sed -E 's/^[vV]//' | grep -vE "^${CUR//./\\.}$" | sort -u)
-  if [ -z "$DIFF" ]; then ok "版本号一致（全包均为 ${CUR}）"
+  DIFF=$(find "$S" -name "*.md" -not -path "*/.git/*" -print 2>/dev/null \
+        | while IFS= read -r f; do \
+            if [ "$(basename "$f")" = "README.md" ]; then \
+              sed -E '/^\|[[:space:]]*[vV]?[0-9]+\.[0-9]+\.[0-9]+/d' "$f"; \
+            else cat "$f"; fi; \
+          done \
+        | grep -oE "[vV]?[0-9]+\.[0-9]+\.[0-9]+" \
+        | sed -E 's/^[vV]//' | grep -vE "^${CUR//./\\.}$" | sort -u)
+  if [ -z "$DIFF" ]; then ok "版本号一致（全包均为 ${CUR}；README 变更史表放行）"
   else no "存在与 frontmatter(${CUR}) 不一致的版本号：" "$DIFF"; fi
 fi
 
