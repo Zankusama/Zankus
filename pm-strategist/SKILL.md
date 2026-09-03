@@ -19,12 +19,12 @@ allowed-tools: [Read, Grep, Glob, Write, Bash]
 dependencies: []
 conflicts: []
 author: Zankusama
-version: "4.2.5"
+version: "4.2.6"
 ---
 
 # 产品军师 · 快消PM决策
 
-*版本 v4.2.5｜变更史见 README「版本记录」表，逐条可 git log 追溯。*
+*版本 v4.2.6｜变更史见 README「版本记录」表，逐条可 git log 追溯。*
 
 > **CRITICAL — 被触发后第一条回复必须先输出「路径声明 + 归位透出」**，闸口 A 确认后才装弹药。
 > 主线：可逆性分级 → 原语路由归位 → 装弹药+算账 → 决策记录收尾；闸口 A-F/H 脚本化强制（详见「执行流程」「闸口总表」）。
@@ -259,6 +259,7 @@ bash "$SKILL_DIR/tests/run_tests.sh"
 | stage-gate-check.py | 五闸过闸检查（fm-01 对齐） | S1 配套 | `--self` |
 | kano-classify.py | KANO 需求分类 | 需求调研参考 | `--self` |
 | priority-calc.py | RICE/WSJF 优先级排序 | 配套 fm-03 | `--self` |
+| pre-publish-check.sh | 分发拦截：版本一致/开发残留/绝对路径/config 空模板检查 | 分享/分发前（闸口 E） | bash 直跑 |
 
 规则：测试/脚本统一用 `grep -E`，禁止依赖 GNU BRE 的 `\|`（跨宿主方言不一致）。
 
