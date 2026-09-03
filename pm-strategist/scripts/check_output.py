@@ -28,6 +28,12 @@ RISK_DIMS = {
     "组织": ["组织", "人力", "团队", "人员", "排产", "培训"],
 }
 B_TAGS = {"S4": "最终定价决策需跨部门确认", "S5": "最终上市决策需跨部门确认"}
+# ① B 类记忆层术语机器断言（术语浮层表 B 类：对用户输出禁甩流程黑话，须白话改写）
+# 术语表 A 类行业词（动销率/费比/毛利等）不禁——科普解释是术语表合法职能；
+# 禁的是"记忆/流程内部词"裸用于对用户输出（决策情境/披露分层/回显确认/升级通道/
+# 记忆判据/同词异层/身份层 = 包内机制名；待固化/待补采/确认戳 = 记忆层技术词）。
+BANLIST = ["决策情境", "披露分层", "回显确认", "升级通道", "记忆判据", "同词异层",
+           "身份层", "待固化", "待补采", "确认戳"]
 # D'-③ 反方意见双要素：①具体条件（什么事实成立）②可反驳出口（推翻/失效/推翻条件=…）
 # 只写连接词（"如果可能市场不好吧"）＝稻草人，等于没有反方——两要素缺一即拦。
 CON_RE = r"如果|若|一旦|假如|前提是|除非|当.{0,6}(时|成立|发生|出现)|在.{0,10}情况下"
@@ -130,6 +136,12 @@ def check_dr(text):
 def check_full(text):
     """完整输出总校验：路径声明+场景+可逆性+建议6要素+风险6维+DR9+收敛终端+B类标注。"""
     problems = []
+    # 0 B 类记忆层术语机器断言：输出文本裸用流程黑话 → 拦（对用户须白话改写）
+    hit_ban = [w for w in BANLIST if w in text]
+    if hit_ban:
+        problems.append("B 类记忆层术语裸用于对用户输出（须白话改写，禁甩流程黑话）：%s —— "
+                        "例：说\"这次退不退得回/该问多细\"而非\"披露分层\"；说\"记进长期档案前我会念给你确认\"而非\"回显确认\""
+                        % "/".join(hit_ban))
     # 1 路径声明（CRITICAL 首条回复声明路径）
     if "路径声明" not in text:
         problems.append("缺路径声明（第一条回复应含「路径声明：验证轨|路由轨 | 场景=… | 可逆性=… | 主查=…」）")
@@ -219,11 +231,18 @@ def self_test():
     straw = good.replace("- 反方意见：竞品若同步降价则渗透逻辑失效——看竞品周跟踪",
                          "- 反方意见：如果可能市场不好吧")
     straw_caught = any("D'-③" in p for p in check_dr(straw))
-    print("self: 完整好样本 %s（期望PASS）；坏样本拦截 %d 处（期望≥3）；DR结构 %s；零质量DR拦截 %d 项（期望≥4）%s；稻草人反方拦截 %s" % (
+    # B 类记忆层术语裸用于对用户输出必拦
+    jargon = good.replace("权衡分析：对毛利/销量/渠道接受度对账",
+                          "权衡分析：对毛利/销量/渠道接受度对账（含披露分层判定）")
+    jargon_caught = any("B 类记忆层术语" in p for p in check_full(jargon))
+    no_false = not any("B 类记忆层术语" in p for p in check_full(good))
+    print("self: 完整好样本 %s（期望PASS）；坏样本拦截 %d 处（期望≥3）；DR结构 %s；零质量DR拦截 %d 项（期望≥4）%s；稻草人反方拦截 %s；禁词拦截 %s（好样本无误报 %s）" % (
         "PASS✓" if ok else "FAIL✗", len(check_full(bad)), "PASS✓" if dr_ok else "FAIL✗",
         len(zero_problems), "✓" if zero_ok else "✗",
-        "✓" if straw_caught else "✗ 未拦住（判定失效）"))
-    return ok and caught and dr_ok and zero_ok and straw_caught
+        "✓" if straw_caught else "✗ 未拦住（判定失效）",
+        "✓" if jargon_caught else "✗ 未拦住",
+        "✓" if no_false else "✗ 误报"))
+    return ok and caught and dr_ok and zero_ok and straw_caught and jargon_caught and no_false
 
 
 def main():
