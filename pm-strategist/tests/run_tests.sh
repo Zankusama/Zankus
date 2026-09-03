@@ -244,6 +244,16 @@ if python3 "$S/scripts/calc-pricing.py" --self >/dev/null 2>&1; then ok "calc-pr
 if python3 "$S/scripts/calc-pricing.py" --price 59 >/dev/null 2>&1; then bad "calc-pricing 缺输入未拒算"; else ok "calc-pricing 缺输入拒算（护栏1）"; fi
 if python3 "$S/scripts/profile-check.py" --self >/dev/null 2>&1; then ok "profile-check --self（闸口C）"; else bad "profile-check --self"; fi
 
+echo "[23] ref-06 组件数演进防回归（头部声明=6 + 组件标题计数=6 + 术语并轨禁旧称）"
+CN_RAW=$(grep -c "^## 组件" "$S/references/ref-06通用组件.md" || true)
+CN_CHK=$(grep -c "^## 组件执行检查单" "$S/references/ref-06通用组件.md" || true)
+CN6=$((CN_RAW - CN_CHK))
+if [ "$CN6" -eq 6 ]; then ok "ref-06 组件标题计数=${CN6}（组件①-⑥在位）"; else bad "ref-06 组件标题计数=${CN6} ≠ 6（组件数演进后结构缺件）"; fi
+if grep -q "六个组件" "$S/references/ref-06通用组件.md"; then ok "ref-06 头部声明含'六个组件'（数量声明与实际一致）"; else bad "ref-06 头部声明缺'六个组件'（组件数演进后头部漏改）"; fi
+if grep -q "身份层" "$S/references/ref-06通用组件.md"; then ok "ref-06 术语'身份层'在位（并轨锚点）"; else bad "ref-06 术语'身份层'缺失"; fi
+OLD=$(grep -cE "行业适配(层)?" "$S/references/ref-06通用组件.md" || true)
+if [ "$OLD" -eq 0 ]; then ok "ref-06 旧术语'行业适配/行业适配层' 0 残留（禁旧称）"; else bad "ref-06 旧术语'行业适配' 残留 ${OLD} 处（术语第三次漂移）"; fi
+
 echo "═══════════════════════════"
 echo "结果：$PASS 通过，$FAIL 失败"
 [ "$FAIL" = 0 ] && echo "ALL GREEN ✅" || echo "HAS RED ❌"

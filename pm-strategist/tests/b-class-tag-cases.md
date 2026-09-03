@@ -10,5 +10,5 @@
 
 ## 机器校验
 
-- `python3 scripts/check_output.py <输出>`：场景=S4/S5 时缺对应标注 → 报"B类场景缺跨部门确认标注"退出 1（实测见验收记录）
+- `python3 "$SKILL_DIR/scripts/check_output.py" <输出文件>`：场景=S4/S5 时缺对应标注 → 报"B类场景缺跨部门确认标注"退出 1（实测见验收记录）
 - grep 逐字校验：`grep -c "需跨部门确认" ref-04定价与盈利.md` ≥1、ref-05 ≥1（基线实测各 4 处）

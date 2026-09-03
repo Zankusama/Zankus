@@ -7,7 +7,7 @@
 - 输入情境："A品要不要砍？"
 - ❌ 违规输出：直接给执行方案："砍掉后产线改造分三步走：第一步…第二步…"
 - ✅ 合规输出：建议6要素（选项≥2含不做/推荐倾向/权衡分析/不做项说明/风险/数据需求引导）+ 以 DR9 收尾
-- 断言：`python3 scripts/check_output.py 输出文本` 对"含执行方案、缺选项对照"的文本报缺失退出 1；合规文本含 6 要素关键词（实测见验收记录）
+- 断言：`python3 "$SKILL_DIR/scripts/check_output.py" <输出文件>` 对"含执行方案、缺选项对照"的文本报缺失退出 1；合规文本含 6 要素关键词（实测见验收记录）
 
 ## B2 不许编造（准则④）
 
@@ -25,5 +25,5 @@
 
 ## 补充断言（准则②③的机器子集）
 
-- 风险 6 维度：`python3 scripts/risk-check.py` 对只提 3 维的文本报 3 维缺失（退出 1）
-- 未知信息引导：`python3 scripts/unknown-info-check.py --scene S1` 对只问 1 维的输出报漏问（退出 1）
+- 风险 6 维度：`python3 "$SKILL_DIR/scripts/risk-check.py"` 对只提 3 维的文本报 3 维缺失（退出 1）
+- 未知信息引导：`python3 "$SKILL_DIR/scripts/unknown-info-check.py" --scene S1` 对只问 1 维的输出报漏问（退出 1）

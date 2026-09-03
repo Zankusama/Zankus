@@ -9,7 +9,7 @@
 用法:
   python3 scripts/check_output.py <输出文本文件>
   cat 输出.txt | python3 scripts/check_output.py -
-  python3 scripts/check_output.py --mode dr <DR文本>   # 仅校验 DR 结构不变量
+  python3 scripts/check_output.py --mode dr <输出文本文件>   # 仅校验 DR 结构不变量
   python3 scripts/check_output.py --self
 退出码: 0=PASS, 1=有缺项, 2=用法/读入错误
 本脚本只读文本，不写盘。

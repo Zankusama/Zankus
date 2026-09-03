@@ -1,7 +1,7 @@
 # trigger-scenes.md — 5场景正向触发用例
 
 > 每场景 1 条典型提问 → 期望：触发 pm-strategist + 路由到正确场景与类别。
-> 断言方式：人工跑 `python3 scripts/scene-router.py "提问"` 应输出期望场景行；实际命令输出见验收记录。
+> 断言方式：人工跑 `python3 "$SKILL_DIR/scripts/scene-router.py" "提问"` 应输出期望场景行；实际命令输出见验收记录。
 
 | # | 用户输入（典型提问） | 期望场景 | 期望类别 | 期望主查 |
 |:--:|:---|:---|:---:|:---|
