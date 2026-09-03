@@ -32,13 +32,16 @@ scan(){
 
 echo "=== 分享前自检：$S ==="
 
-# 1) config/local_profile.md 必须仍是空模板（【待固化】≥6）
+# 1) config/local_profile.md 必须仍是空模板（【待固化】≥6）——v4.3.0：身份层唯一文件，填写版含个人数据
 CFG="$S/config/local_profile.md"
 if [ -f "$CFG" ]; then
   n=$(grep -c "【待固化】" "$CFG")
   if [ "$n" -ge 6 ]; then ok "config 仍为空模板（占位字段 ${n} 个）"
-  else no "config 已被固化个人信息（占位仅 ${n} 个）——分享前排除或清空 config/"; fi
+  else no "config/local_profile.md 已被固化个人信息（占位仅 ${n} 个）——身份层填写版含个人数据，分享前须还原空模板或排除"; fi
 else no "缺少 config/local_profile.md（应预置空模板）"; fi
+
+# 1b) config/pm_settings.json（DR 落盘偏好，运行时生成）不得随包分享
+if [ -f "$S/config/pm_settings.json" ]; then no "config/pm_settings.json 存在（本机 DR 偏好）——分享前删除"; else ok "无 config/pm_settings.json"; fi
 
 # 2) 运行时产物 / 系统垃圾
 LEAK=$(find "$S" \( -name "DR-*.md" -o -name "*.log" -o -name "__pycache__" \

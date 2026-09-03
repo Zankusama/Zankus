@@ -7,8 +7,12 @@ __pycache__/
 .snapshots/
 .DS_Store
 
-# 注意：config/local_profile.md 是“预置空模板”，故意入库随包分发；
-# 它必须保持全空（【待固化】占位），若本机已填写，pre-publish-check 会 FAIL 提醒，切勿提交填写版。
+# config/pm_settings.json = DR 落盘偏好（运行时生成，v4.3.0 起默认存此处），不入库
+config/pm_settings.json
+
+# 注意：config/local_profile.md 是“身份层唯一文件 + 预置空模板”，模板态随包分发；
+# 填写态含个人数据——本机建议 git update-index --skip-worktree config/local_profile.md 防误提交；
+# 若本机已填写，pre-publish-check 会 FAIL 提醒，切勿提交/分享填写版。
 
 # 运行时 DR 落盘目录（默认 ./决策记录/，Step 3b 新增，不入库）
 决策记录/

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""profile-check.py — 决策前提库身份层校验（总案 v2.1 闸口 C + P2-3）
+"""profile-check.py — 决策前提库身份层校验（总案 v2.1 闸口 C + P2-3 + v4.3.0 双闸门）
 
 闸口 C（全强制）：会话载入前提库时校验——准确优先（前提库允许不完整、不允许不准确）：
-  拦（problems，exit 1）仅三类不可信/伪固化：
+  拦（problems，exit 1）仅三类不可信/伪固化 + v4.3.0 新增双闸：
     ① L0 必填缺失（行业大类 + 品类名称，空模板未首采）
     ② 无确认时间戳（固化日期/上次确认）——文件未走回显确认流程，整体不可信
     ③ 确认戳超期 90 天——旧确认须重验
+    ④ v4.3.0 闸A 字段集比对：缺模板字段（升级新增字段未迁移）→ 硬拦。判据=文件键集 vs L0/L1 全集，
+       缺键=升级没跟上（模板复制出的文件键应齐全）；键在值空/【待固化】=真缺失（走 warn，不拦，v2 纪律）
+    ⑤ v4.3.0 闸B 版本戳比对：文件 schema 版本行 vs SCHEMA_VERSION——缺失/落后=口径级升级未确认 → 硬拦
   其余一律不拦流程（warn 缺失清单）：
     L1 真缺失（品牌阶段/渠道结构/拍板权/定位禁区，字段名对齐 SKILL.md）→ 清单 warn，
     决策命中该字段时由 AI 显式「假设·未验证」或现场补问，不得当作已确认；
@@ -17,13 +20,19 @@
   未固化判据：字段值空、或含「【待固化】」「【待补采…」占位标记 → 一律视为未固化。
     「待补采」是 AI 侧标注——只许记在当次输出/缺失清单，写进字段值会被本判据按未固化处理，
     防静默绕过（写了不等于已确认）。
-路径解析顺序（路径为可配置默认值，脚本内不硬编码死路径）：
-  1) --profile 参数   2) 环境变量 PM_STRATEGIST_PROFILE   3) 默认 ~/.workbuddy/pm-strategist/profile.md
-退出码: 0=可载入; 1=L0 必填缺失/无确认戳/确认戳超期（附重验提示）; 2=用法错误
+路径解析顺序（v4.3.0：默认相对 skill 目录，不写死平台专属路径；--profile/env 仅覆盖）：
+  1) --profile 参数   2) 环境变量 PM_STRATEGIST_PROFILE   3) 默认 <skill 根>/config/local_profile.md
+载入即打印身份层全文（人话回显稿）——每次会话可见可改，不靠 AI 自觉回显。
+退出码: 0=可载入; 1=L0 必填缺失/无确认戳/确认戳超期/双闸拦下（附重验提示）; 2=用法错误
 """
 import sys, os, re, argparse, datetime
 
-DEFAULT_PROFILE_DIR = os.path.expanduser("~/.workbuddy/pm-strategist")  # 可配置默认值（P2-3）
+DEFAULT_PROFILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # v4.3.0: skill 根（scripts/..），相对解析不写死平台目录
+DEFAULT_PROFILE_FILE = "local_profile.md"  # 身份层唯一文件（config/ 内）
+# v4.3.0: schema 版本 = skill frontmatter version；bump 时两处一起改（SKILL.md version + 本常量），pre-publish 版本一致性兜底
+SCHEMA_VERSION = "4.3.0"
+# 版本行：文件头部注释 `> schema 版本：v4.3.0`（模板自带，固化时保留）
+SCHEMA_VERSION_RE = re.compile(r"schema\s*版本[:：]\s*v?([0-9]+\.[0-9]+\.[0-9]+)")
 L0_REQUIRED = ["行业", "品类"]  # 必填拦截（首采轻门槛，仅此 2 个）
 L0_OPTIONAL = ["目标客群", "公司规模"]  # 宽松字段：缺失 → warn 现场确认，不拦（记忆分层 P3）
 L0 = L0_REQUIRED + L0_OPTIONAL  # 打印用全集
@@ -55,7 +64,7 @@ def profile_path(args):
     env = os.environ.get("PM_STRATEGIST_PROFILE")
     if env:
         return env
-    return os.path.join(DEFAULT_PROFILE_DIR, "profile.md")
+    return os.path.join(DEFAULT_PROFILE_DIR, "config", DEFAULT_PROFILE_FILE)
 
 
 def parse_profile(text):
@@ -91,6 +100,20 @@ def check(text, today=None):
     today = today or datetime.date.today()
     fields, experiences = parse_profile(text)
     problems, warns = [], []
+    # ── v4.3.0 闸A：字段集比对（自动，零依赖人 bump）────────────────────────
+    # 判据：模板复制出的文件 8 键应齐全；缺键 = 升级新增字段未迁移 → exit 1
+    #       键在值空/【待固化】 = 真缺失 → 走下方 warn（不拦，v2 纪律）
+    # 注意：须在 L1 缺失 warn 之前跑——缺键的字段不叠「L1 未固化」warn（同字段去重，B3）
+    SCHEMA_FIELDS = L0_REQUIRED + L0_OPTIONAL + L1  # 8 键全集（v4.3.0：仅 L0/L1，无 L2）
+    missing_keys = [f for f in SCHEMA_FIELDS if f not in fields]
+    if missing_keys:
+        problems.append("schema 字段缺失（升级未迁移）：%s —— 模板已含这些字段而本文件缺键，须走迁移回显（全量回显 → 逐条确认 → 重打戳 → bump 版本行）" % "、".join(missing_keys))
+    # ── v4.3.0 闸B：版本戳比对 ────────────────────────────────────────────
+    m_ver = SCHEMA_VERSION_RE.search(text)
+    if not m_ver:
+        problems.append("无 schema 版本行（应含「> schema 版本：v%s」）——无法判定文件口径与当前模板一致，须走升级重验（全量回显 → 重打戳 → 补版本行）" % SCHEMA_VERSION)
+    elif m_ver.group(1) != SCHEMA_VERSION:
+        problems.append("schema 版本落后：文件 %s vs 当前 %s —— 身份层非按最新模板固化（口径级升级未确认），须全量回显重验后重打戳并 bump 版本行" % (m_ver.group(1), SCHEMA_VERSION))
     # L0 必填（首采门槛，始终拦截；宽松字段只 warn 现场确认——P3 #15）
     for f in L0_REQUIRED:
         v = fields.get(f, "")
@@ -117,6 +140,8 @@ def check(text, today=None):
     for legacy, new in LEGACY_L1_MAP.items():
         legacy_covering[new] = filled(fields.get(legacy, "").strip())
     for f in L1:
+        if f in missing_keys:  # 闸A 已拦（升级未迁移），不叠缺失 warn（去重，B3）
+            continue
         if legacy_covering.get(f):  # 旧字段残留：迁移去向 warn 已带该字段缺失语义，避免双响
             continue
         if not filled(fields.get(f, "")):
@@ -148,16 +173,37 @@ def check(text, today=None):
 
 def self_test():
     today = datetime.date.today()
-    fresh = "- 行业：示例占位\n- 品类：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 拍板权：示例占位\n- 定位禁区：示例占位\n- 固化日期：%s\n" % today.isoformat()
-    stale = fresh.replace(today.isoformat(), (today - datetime.timedelta(days=120)).isoformat())
-    placeholder = "- 行业：【待固化】\n- 品类：【待固化】\n- 固化日期：%s\n" % today.isoformat()
-    nostamp = fresh.replace("- 固化日期：%s\n" % today.isoformat(), "")
-    legacy = "- 行业：示例占位\n- 品类：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 组织分工：示例占位\n- 品牌定位：示例占位\n- 固化日期：%s\n" % today.isoformat()
-    # F1 反例（对抗审查 N1 实证）：合法轻固化 = L0 两项 + 确认戳、无任何 L1
-    # （SKILL.md「必填仅 2 个」流程首采产物）→ 不得拦截，降级 warn
-    light = "- 行业：示例占位\n- 品类：示例占位\n- 固化日期：%s\n" % today.isoformat()
-    # P3 新样本：括注字段名（N8 兼容：键取冒号前裸名）+ 宽松字段缺失 + 经验句超限
-    paren = "- 行业：示例占位\n- 品类：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 拍板权（谁拍板）：示例占位\n- 定位禁区：示例占位\n- 固化日期：%s\n" % today.isoformat()
+    ver = "> schema 版本：%s\n" % SCHEMA_VERSION
+    # 8 键基线（= 当前模板完整键集：L0 4 + L1 4）；各样本在基线上变形
+    def base(**over):
+        """生成 8 键齐全的身份段文本；over 传 字段名→值 覆盖，None=删除该键"""
+        d = {"行业": "示例占位", "品类": "示例占位", "目标客群": "示例占位", "公司规模": "示例占位",
+             "品牌阶段": "示例占位", "渠道结构": "示例占位", "拍板权": "示例占位", "定位禁区": "示例占位",
+             "固化日期": today.isoformat()}
+        d.update(over)
+        lines = []
+        for k, v in d.items():
+            if v is None:
+                continue
+            lines.append("- %s：%s" % (k, v))
+        return "\n".join(lines) + "\n"
+    fresh = base() + ver
+    stale = base(固化日期=(today - datetime.timedelta(days=120)).isoformat()) + ver
+    placeholder = base(行业="【待固化】", 品类="【待固化】", 目标客群=None, 公司规模=None,
+                       品牌阶段=None, 渠道结构=None, 拍板权=None, 定位禁区=None) + ver
+    nostamp = base(固化日期=None) + ver
+    # 旧 schema 残留（升级前时代：组织分工/品牌定位 而非 拍板权/定位禁区，缺新键 + 旧版本行）
+    # → 双闸必须拦（升级未迁移）——本次验收事故的修复验证样本
+    # 旧版本号运行时推导（当前主版本降 1），避免源内硬编码历史版本号被 pre-publish 版本一致性扫描误伤
+    legacy_ver = "%d.%d.%d" % (int(SCHEMA_VERSION.split(".")[0]), int(SCHEMA_VERSION.split(".")[1]) - 1, 0)
+    legacy = base(拍板权=None, 定位禁区=None, 组织分工="示例占位", 品牌定位="示例占位",
+                  固化日期=today.isoformat()) + "> schema 版本：%s\n" % legacy_ver
+    # F1 反例（对抗审查 N1 实证）：合法轻固化 = 8 键齐（模板复制）+ L0 两项有值、L1 全空 + 确认戳
+    # （SKILL.md「必填仅 2 个」流程首采产物，键在值空=真缺失）→ 不得拦截，降级 warn
+    light = base(目标客群="【待固化】", 公司规模="【待固化】", 品牌阶段="【待固化】",
+                 渠道结构="【待固化】", 拍板权="【待固化】", 定位禁区="【待固化】") + ver
+    # P3 新样本：括注字段名（N8 兼容：键取冒号前裸名）+ 经验句超限
+    paren = "- 行业：示例占位\n- 品类：示例占位\n- 目标客群：示例占位\n- 公司规模：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 拍板权（谁拍板）：示例占位\n- 定位禁区：示例占位\n- 固化日期：%s\n" % today.isoformat() + ver
     exp6 = fresh + "## 经验句\n- 经验句：规则句一\n- 经验句：规则句二\n- 经验句：规则句三\n- 经验句：规则句四\n- 经验句：规则句五\n- 经验句：规则句六\n"
     ok = True
     def chk(name, cond):
@@ -166,7 +212,7 @@ def self_test():
             ok = False
             print("  ❌ " + name)
     _, p1, _ = check(fresh, today)
-    chk("新鲜样本（规则字段齐）通过", not p1)
+    chk("新鲜样本（8键齐+当前版本行）通过", not p1)
     _, p2, _ = check(stale, today)
     chk("超期120天被拦", any("超期" in x for x in p2))
     _, p3, _ = check(placeholder, today)
@@ -174,33 +220,43 @@ def self_test():
     _, p4, _ = check(nostamp, today)
     chk("无确认戳被拦", any("时间戳" in x for x in p4))
     _, p5, w5 = check(legacy, today)
-    chk("旧字段名迁移降 warn 不拦流程（拍板权/定位禁区真值从未被确认=真缺失，v2 二分）", not p5)
+    chk("旧schema残留（缺新键拍板权/定位禁区 + 旧版本行）被双闸拦（升级未迁移）", any("schema" in x for x in p5))
     chk("迁移 warn 含去向指引（旧值→新位语义映射，非裸删）", any("去向指引" in x for x in w5))
-    chk("同字段去重：迁移去向 warn 已覆盖拍板权/定位禁区时，不叠通用 L1 缺失 warn（B3）", not any(("L1 未固化：拍板权" in x) or ("L1 未固化：定位禁区" in x) for x in w5))
     _, p6, w6 = check(light, today)
-    chk("轻固化反例不拦（L0两项+戳、L1全缺=首采渐进期）", not p6)
+    chk("轻固化反例不拦（8键齐+L0两项有值+L1空=首采渐进期）", not p6)
     chk("轻固化降级为 L1 缺失清单 warn", any("L1 未固化" in x for x in w6))
-    _, p7, w7 = check(paren, today)
-    chk("括注字段名（拍板权（谁拍板）：值）解析到裸名键不失配（N8）", not p7 and not any("拍板权" in x and "缺失" in x for x in p7))
-    _, p8, w8 = check(fresh, today)
-    chk("宽松字段（目标客群/公司规模）缺失不拦，warn 现场确认（首采轻门槛保住）", not p8 and any("宽松字段未固化" in x for x in w8))
+    _, p7, _ = check(paren, today)
+    chk("括注字段名（拍板权（谁拍板）：值）解析到裸名键不失配（N8）", not p7)
+    _, p8, w8 = check(base(目标客群="【待固化】", 公司规模="【待固化】") + ver, today)
+    chk("宽松字段（目标客群/公司规模）键在值空→warn 现场确认（首采轻门槛保住）", not p8 and any("宽松字段未固化" in x for x in w8))
     _, p9, w9 = check(exp6, today)
     chk("经验句 6 条超限 → warn LRU 淘汰提示（身份段不受污染）", any("经验句超限" in x for x in w9))
-    # v4.2.2 新增：部分 L1 已固化、缺拍板权/定位禁区（真实 profile 形态）→ 降 warn 不拦（v2 真缺失）
-    partial = "- 行业：示例占位\n- 品类：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 固化日期：%s\n" % today.isoformat()
+    # v4.2.2 场景保留：部分 L1 已固化、拍板权/定位禁区值空（键在值空=真缺失，非升级落后）→ 降 warn 不拦
+    partial = base(拍板权="【待固化】", 定位禁区="【待固化】") + ver
     _, p10, w10 = check(partial, today)
-    chk("部分 L1 已固化缺项 → 降 warn 不拦（v2 真缺失：拍板权缺失清单，不再撞墙）", not p10 and any("拍板权" in x and "未固化" in x for x in w10))
+    chk("部分 L1 已固化缺项 → 降 warn 不拦（键在值空=真缺失：拍板权缺失清单，不再撞墙）", not p10 and any("拍板权" in x and "未固化" in x for x in w10))
     # 待补采占位写进字段值 → 按未固化处理（防静默绕过准确性闸门）
-    pending = "- 行业：示例占位\n- 品类：示例占位\n- 品牌阶段：示例占位\n- 渠道结构：示例占位\n- 拍板权：示例占位\n- 定位禁区：【待补采：此信息问老板】\n- 固化日期：%s\n" % today.isoformat()
+    pending = base(定位禁区="【待补采：此信息问老板】") + ver
     _, p11, w11 = check(pending, today)
     chk("待补采占位不当已确认（【待补采…】写进字段值 → 仍按未固化 warn，不拦流程）", not p11 and any("定位禁区" in x and "未固化" in x for x in w11))
-    print("self: profile-check 闸口C（L0必填+确认戳90天+真缺失二分+迁移去向去重+待补采判据+轻固化+宽松字段+括注N8+经验句超限） %s" % ("PASS✓" if ok else "FAIL✗"))
+    # ── v4.3.0 双闸门验收样本 ──
+    _, p12, _ = check(base() + ver, today)
+    chk("新schema齐全（8键+当前版本行）PASS", not p12)
+    # 缺键但版本行当前（作者改模板忘 bump 版本行场景）→ 闸A 字段集兜住
+    no_key_cur = base(拍板权=None, 定位禁区=None) + ver
+    _, p13, _ = check(no_key_cur, today)
+    chk("闸A兜底：版本行当前但缺键（忘bump场景）仍拦", any("schema 字段缺失" in x for x in p13))
+    # 无版本行（手工拼文件）→ 闸B 拦
+    no_ver = base()
+    _, p14, _ = check(no_ver, today)
+    chk("闸B兜底：无版本行文件被拦", any("版本" in x for x in p14))
+    print("self: profile-check 闸口C（双闸门[字段集+版本戳]+L0必填+确认戳90天+真缺失二分+迁移去向去重+待补采判据+轻固化+宽松字段+括注N8+经验句超限） %s" % ("PASS✓" if ok else "FAIL✗"))
     return ok
 
 
 def main():
-    ap = argparse.ArgumentParser(description="pm-strategist 决策前提库校验（闸口C：L0必填+确认戳90天；真缺失列清单不拦流程）")
-    ap.add_argument("--profile", help="前提库路径（默认顺序：--profile > PM_STRATEGIST_PROFILE > ~/.workbuddy/pm-strategist/profile.md）")
+    ap = argparse.ArgumentParser(description="pm-strategist 决策前提库校验（闸口C双闸门：字段集+版本戳；L0必填+确认戳90天；真缺失列清单不拦流程）")
+    ap.add_argument("--profile", help="前提库路径（默认：skill 目录 config/local_profile.md；--profile > PM_STRATEGIST_PROFILE > 默认）")
     ap.add_argument("--self", action="store_true", help="内置样例自检")
     a = ap.parse_args()
     if a.self:
@@ -209,22 +265,30 @@ def main():
     if not os.path.isfile(pp):
         print("FAIL — 前提库不存在：%s" % pp)
         print("→ 未固化。首次使用走 SKILL.md「三层引导·身份层」采集（必填仅 2 个：行业大类+品类名称），")
-        print("  结果写入包外前提库（路径可配置：--profile 或环境变量 PM_STRATEGIST_PROFILE，默认 %s）" % os.path.join(DEFAULT_PROFILE_DIR, "profile.md"))
+        print("  结果写入 skill 目录 config/local_profile.md（默认；--profile 或环境变量 PM_STRATEGIST_PROFILE 可覆盖）")
         return 1
     text = open(pp, encoding="utf-8").read()
     fields, problems, warns = check(text)
+    # v4.3.0：载入即打印身份层全文（人话回显稿基础）——每次会话可见可改，不靠 AI 自觉回显
+    print("── 当前身份层全文（回显稿：逐条念给用户确认「还成立吗」）──")
+    mv = SCHEMA_VERSION_RE.search(text)
+    print("  schema版本：%s（当前模板 v%s）" % (mv.group(1) if mv else "无", SCHEMA_VERSION))
     for f in L0 + L1:
         v = fields.get(f, "")
-        show = (v[:30] + "…") if len(v) > 30 else (v if v else "（未固化）")
-        print("%s：%s" % (f, show))
+        show = (v[:60] + "…") if len(v) > 60 else (v if v else "（未固化）")
+        print("  %s：%s" % (f, show))
+    for k in TIMESTAMP_KEYS + ["固化来源"]:
+        if fields.get(k):
+            v = fields[k]
+            print("  %s：%s" % (k, (v[:60] + "…") if len(v) > 60 else v))
     for w in warns:
         print("  ⚠️ " + w)
     if problems:
-        print("FAIL — 闸口C 拦下 %d 项：" % len(problems))
+        print("FAIL — 闸口C 拦下 %d 项（exit 1：不得带此身份层进场景，须先走迁移/重验）：" % len(problems))
         for x in problems:
             print("  ❌ " + x)
         return 1
-    print("PASS — 前提库可载入（闸口C）")
+    print("PASS — 前提库可载入（闸口C双闸门通过）")
     return 0
 
 

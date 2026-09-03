@@ -6,8 +6,8 @@
   - DR9 契约与 SKILL.md / frameworks/fm-02 逐字一致
   - 决策链 = 可选字段：仅复合决策出现（值=关联 DR id 互引；写进"问题"字段会埋没审计线索，故独立成字段）
   - render 产出自包含 HTML 单文件（D10：阅读体验决定回看；内联 CSS、状态徽章含"快轨"橙标、内置复盘区）
-  - 默认落盘 ./决策记录/（D20：用户工作区）；首次落盘前问一次，偏好存包外
-  - 路径可配置（P2-3）：--out > 环境变量 PM_STRATEGIST_DR_DIR > 包外偏好文件 > 默认 ./决策记录
+  - 默认落盘 ./决策记录/（D20：用户工作区）；首次落盘前问一次，偏好存 skill 目录 config/（v4.3.0 起相对解析）
+  - 路径可配置（P2-3）：--out > 环境变量 PM_STRATEGIST_DR_DIR > 配置文件偏好 > 默认 ./决策记录
 
 用法（脚本不在用户工程目录，须带 skill 目录前缀——先 `SKILL_DIR=~/.workbuddy/skills/pm-strategist` 再 `python3 "$SKILL_DIR/scripts/decision-record.py" …`）:
   python3 "$SKILL_DIR/scripts/decision-record.py" --template              # 打印文本模板（聊天内引导用）
@@ -176,7 +176,8 @@ def settings_file():
     d = os.environ.get("PM_STRATEGIST_PROFILE_DIR") or os.environ.get("PM_STRATEGIST_PROFILE")
     if d and os.path.isfile(d):
         d = os.path.dirname(d)
-    d = d or os.path.expanduser("~/.workbuddy/pm-strategist")
+    # v4.3.0：默认落 skill 目录 config/（相对解析，不写死平台目录；零平台绑定）
+    d = d or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
     return os.path.join(d, "pm_settings.json")
 
 
@@ -197,13 +198,13 @@ def save_settings(s):
 
 
 def resolve_out_dir(ask=True):
-    """落盘目录解析（P2-3 可配置默认；D20 首次问一次存包外）。"""
+    """落盘目录解析（P2-3 可配置默认；D20 首次问一次存配置文件）。"""
     env = os.environ.get("PM_STRATEGIST_DR_DIR")
     if env:
         return env, "环境变量 PM_STRATEGIST_DR_DIR"
     s = load_settings()
     if s.get("dr_dir"):
-        return s["dr_dir"], "包外偏好（首次落盘时的选择，%s）" % settings_file()
+        return s["dr_dir"], "配置文件偏好（首次落盘时的选择，%s）" % settings_file()
     d = "./决策记录"
     if ask and sys.stdin.isatty():
         try:
@@ -214,7 +215,7 @@ def resolve_out_dir(ask=True):
             d = ans
         s["dr_dir"] = d
         save_settings(s)
-        return d, "本次确认（已存包外偏好，下次不再问）"
+        return d, "本次确认（已存配置文件偏好，下次不再问）"
     return d, "默认值（非交互环境未询问；可用 --out 或 PM_STRATEGIST_DR_DIR 覆盖）"
 
 
