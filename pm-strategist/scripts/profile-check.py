@@ -29,7 +29,8 @@ import sys, os, re, argparse, datetime
 
 DEFAULT_PROFILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # v4.3.0: skill 根（scripts/..），相对解析不写死平台目录
 DEFAULT_PROFILE_FILE = "local_profile.md"  # 身份层唯一文件（config/ 内）
-# v4.3.0: schema 版本 = skill frontmatter version；bump 时两处一起改（SKILL.md version + 本常量），pre-publish 版本一致性兜底
+# schema 版本（字段口径版本）：仅字段集/口径变化时才 bump（本常量与档案版本行两处一起改）；
+# 不随包版本（SKILL.md frontmatter）联动——字段没变就不 bump，用户档案不迁移（BLOCKED B-1 解法 C，2026-09-05）
 SCHEMA_VERSION = "4.3.0"
 # 版本行：文件头部注释 `> schema 版本：v4.3.0`（模板自带，固化时保留）
 SCHEMA_VERSION_RE = re.compile(r"schema\s*版本[:：]\s*v?([0-9]+\.[0-9]+\.[0-9]+)")

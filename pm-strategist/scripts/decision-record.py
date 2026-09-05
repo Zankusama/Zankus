@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""decision-record.py — 决策记录（DR）9字段 + 决策链可选字段：生成 / 校验 / HTML 单文件落盘
+"""decision-record.py — 决策档案（DR）：收敛闸 + 9字段校验 + v0.7 HTML 落盘（DR 校验唯一入口）
 
-总案 v2.1 落位（D10/D20/F2/N2）：
-  - DR9 契约与 SKILL.md / frameworks/fm-02 逐字一致
-  - 决策链 = 可选字段：仅复合决策出现（值=关联 DR id 互引；写进"问题"字段会埋没审计线索，故独立成字段）
-  - render 产出自包含 HTML 单文件（D10：阅读体验决定回看；内联 CSS、状态徽章含"快轨"橙标、内置复盘区）
-  - 默认落盘 ./决策记录/（D20：用户工作区）；首次落盘前问一次，偏好存 skill 目录 config/（v4.3.0 起相对解析）
-  - 路径可配置（P2-3）：--out > 环境变量 PM_STRATEGIST_DR_DIR > 配置文件偏好 > 默认 ./决策记录
+架构定界（v4.4.0，终稿 §3.6/§7）：check_output.py 只管台面四区；本脚本是 DR 校验**唯一入口**——
+要点文件校验 = 9 字段 + 两段（探讨轨迹[收敛闸必填] + 归位[只读]）+ 质量下限（选项含不做/已定须拍板
+原文/反方双要素/风险不全绿/依据有出处），校验通过渲染自包含 HTML 决策档案。
 
-用法（脚本不在用户工程目录，须带 skill 目录前缀——先 `SKILL_DIR=~/.workbuddy/skills/pm-strategist` 再 `python3 "$SKILL_DIR/scripts/decision-record.py" …`）:
+档案模板（v0.7）：暗黑横版（屏幕）+ 浅色（打印 @media print 自动切换；dr_theme:"light" 可选浅色屏幕）；
+双主题 = 同模板两套 CSS 变量。信息守恒：9 字段/反方/六维（含未命中理由）/假设/探讨轨迹/归位一项不少；
+关键内容点 self_test 7/7 grep 断言。密度分档：🔴/实质=8 组件全量；快轨/🟢轻决策=紧凑档案。
+旧模板回退开关：config/pm_settings.json `dr_theme_legacy: true`。
+渲染可选键（不填组件降级，不伪造）：置信度（中高 · 依据句）/下一步/落选死因（含"评分=NN"才画横条）/
+换挡条件/可逆性。
+
+用法（脚本不在用户工程目录，须带 skill 目录前缀——先 `SKILL_DIR=<skill 安装路径>` 再 `python3 "$SKILL_DIR/scripts/decision-record.py" …`）:
   python3 "$SKILL_DIR/scripts/decision-record.py" --template              # 打印文本模板（聊天内引导用）
-  python3 "$SKILL_DIR/scripts/decision-record.py" <要点文件>               # 校验+渲染+落盘 HTML
+  python3 "$SKILL_DIR/scripts/decision-record.py" <要点文件>               # 收敛闸+校验+渲染+落盘 HTML
   cat 要点.txt | python3 "$SKILL_DIR/scripts/decision-record.py" - --out /tmp/x
   python3 "$SKILL_DIR/scripts/decision-record.py" <要点文件> --stdout      # 只打印 HTML 不落盘
   python3 "$SKILL_DIR/scripts/decision-record.py" --self
-退出码: 0=渲染成功; 1=缺必填/校验失败; 2=读入错误
+退出码: 0=渲染成功; 1=缺必填/收敛闸/校验失败; 2=读入错误
 """
 import sys, os, re, json, argparse, datetime, tempfile
 
 DR_DATE = datetime.date.today().strftime("%Y%m%d")
 FIELDS = ["问题", "选项", "决定", "依据", "反方意见", "风险", "假设清单", "复盘日期", "状态"]
-REQUIRED = ["问题", "选项", "决定"]
-CHAIN_FIELD = "决策链"
+REQUIRED = list(FIELDS)  # v4.4.1 盲审B-2：9字段全必填（名实相符，对齐 fm-02 自查点"9字段一个不缺"）
+SECTION_FIELDS = ["探讨轨迹", "归位"]  # v4.4.0：探讨轨迹=收敛闸必填；归位=只读审计段
+OPTIONAL = ["决策链", "置信度", "下一步", "落选死因", "换挡条件", "可逆性"]  # 决策链=复合决策；其余渲染增强
 STATUS = ["草案", "已定", "复盘", "关闭"]
 HINTS = {
     "问题": "一句决策问题（含场景号与决策者/截止时间）",
@@ -34,12 +39,549 @@ HINTS = {
     "假设清单": "每条 ⚠️ 前缀「假设·待验证」；确无假设写「无——输入已全部确认」",
     "复盘日期": "YYYY-MM-DD",
     "状态": "草案/已定/复盘/关闭（快轨决策在状态后加「·快轨」= 橙色徽章）",
+    "探讨轨迹": "【收敛闸必填】①初步版→用户反驳（引用用户原话「…」）→结论如何更新（验证轨：用户判断→军师校准/反对→用户再驳→是否改判）②用户跳过探讨：原因=直接要结论/快轨/连续降频 + 可观测证据（用户原话引用「…」；引「快轨」须与状态字段·快轨后缀一致）。🔴不可逆决策必须至少一处用户原话引用",
+    "归位": "【必填·只读】动作×对象 → 场景号 ｜ 出口 ｜ 理由一句话 ｜ 可逆性=🔴/🟡/🟢（落盘后不许事后改写）",
+}
+OPTIONAL_HINTS = {
+    "决策链": "（可选，仅复合决策填；引用关联 DR id，如 DR-20260902-001、DR-20260902-002）",
+    "置信度": "（渲染可选：三档词+可选依据，格式「中高 · 一句依据」→ 结论卡仪表）",
+    "下一步": "（渲染可选：第一动作一句话 → 结论卡「下一步（你）」框）",
+    "落选死因": "（渲染可选：选项名＝死于…；分号分隔；含「评分=NN」才画对比横条，无评分不伪造分值）",
+    "换挡条件": "（渲染可选：信号+阈值 → 改判方向一句话 → 换挡时间线）",
+    "可逆性": "（渲染可选：🔴/🟡/🟢，也可写在归位段内 → 刊头胶囊；🟢或「·快轨」=紧凑档案）",
 }
 TEMPLATE = "# DR-%s-<slug>（日期已自动填入，编号/主题 slug 落盘时自动取自问题字段）\n" % DR_DATE + \
     "".join("- %s：%s\n" % (f, ("【待补充】" + HINTS[f])) for f in FIELDS) + \
-    "- %s：（可选，仅复合决策填；引用关联 DR id，如 DR-20260902-001、DR-20260902-002）\n" % CHAIN_FIELD
+    "".join("- %s：%s\n" % (f, ("【待补充】" + HINTS[f])) for f in SECTION_FIELDS) + \
+    "".join("- %s：%s\n" % (k, v) for k, v in OPTIONAL_HINTS.items())
 
-_HTML = """<!DOCTYPE html>
+# ── 反方双要素判定（与台面 T5 同标准：具体条件 × 可反驳出口） ──
+CON_RE = r"如果|若|一旦|假如|前提是|除非|当.{0,6}(时|成立|发生|出现)|在.{0,10}情况下"
+TRIGGER_RE = r"则|就会|将会|导致|使得|造成|引发|即|一.{0,4}就"
+FALSIFY_STRONG = (r"推翻|证伪|不成立|失效|站不住|需重估|需重做|重算|落空|白做|白费|前功尽弃|"
+                  r"泡汤|打水漂|适得其反|得不偿失|弄巧成拙|反噬|不再成立|改变.{0,4}结论|"
+                  r"推翻条件|什么数据|什么条件|什么信号")
+FALSIFY_NEG = r"砍错|做错|误判|误杀|错杀|判断失误|决策失误|证明.{0,6}错|说明.{0,6}错|压根不该|不该砍|不该做"
+RISK_DIMS = [("法规", "#4cc9f5"), ("市场", "#a78bfa"), ("竞争", "#ff6b8a"),
+             ("供应链", "#ffb454"), ("财务", "#3fd0b6"), ("组织", "#6b7cff")]
+DIM_KWS = {
+    "法规": ["法规", "合规", "宣称", "备案", "监管", "标签", "法务"],
+    "市场": ["市场", "需求", "趋势", "季节", "渗透"],
+    "竞争": ["竞争", "竞品", "对手", "替代", "跟价"],
+    "供应链": ["供应链", "产能", "原料", "库存", "交期", "备货", "断货"],
+    "财务": ["财务", "毛利", "成本", "回本", "现金流", "预算", "盈亏"],
+    "组织": ["组织", "人力", "团队", "人员", "排产", "培训"],
+}
+B_TAGS = {"S4": "最终定价决策需跨部门确认（财务/销售/渠道/管理层）",
+          "S5": "最终上市决策需跨部门确认（销售/市场/供应链/管理层）"}
+
+
+def parse_points(text):
+    """key: value / key：value 逐行解析（全半角冒号兼容）；JSON 对象也认；
+    无冒号后续行并入上一字段值（探讨轨迹多步/假设多行）。"""
+    pts = {}
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return {k: str(v) for k, v in obj.items()}
+    except (ValueError, TypeError):
+        pass
+    known = FIELDS + SECTION_FIELDS + OPTIONAL
+    last = None
+    for line in text.splitlines():
+        raw = line.strip().lstrip("-• ")
+        if not raw or raw.startswith("#"):
+            continue
+        matched = False
+        for sep in ("：", ":"):
+            if sep in raw:
+                k, v = raw.split(sep, 1)
+                k = k.strip()
+                if k in known:
+                    pts[k] = (pts.get(k, "") + "\n" + v.strip()).strip() if k in pts and pts.get(k) else v.strip()
+                    last = k
+                    matched = True
+                break
+        if not matched and last and raw:
+            pts[last] = (pts.get(last, "") + "\n" + raw).strip()
+    return pts
+
+
+def validate(pts):
+    """收敛闸 + 9 字段 + 质量下限。返回 (missing, problems)。"""
+    def _blank(v):
+        v = (v or "").strip()
+        return (not v) or v.startswith("【待补充】")
+    missing = [f for f in REQUIRED + SECTION_FIELDS if _blank(pts.get(f))]
+    problems = []
+    if "探讨轨迹" not in missing:
+        tt = pts.get("探讨轨迹", "").strip()
+        quoted = bool(re.search(r"「[^」]{2,}」|“[^”]{2,}”|\"[^\"]{2,}\"", tt))
+        if "跳过探讨" in tt or ("跳过" in tt and "原因" in tt):
+            has_reason = bool(re.search(r"原因\s*[=:＝]\s*\S+", tt))
+            # v4.4.1 盲审B-4：引「快轨」作证据须与状态字段「·快轨」后缀互证（防字面编造绕过）
+            fast_ok = "快轨" in tt and "快轨" in pts.get("状态", "")
+            if not (has_reason and (quoted or fast_ok)):
+                problems.append("探讨轨迹跳过声明缺可观测证据（须含 原因=X ＋ 用户原话引用「…」；引「快轨」作证据须与状态字段·快轨后缀互证）——诚实闸：自报口径、复盘可审计")
+        elif not re.search(r"反驳|初步|用户判断|校准|改判|更新|推翻", tt):
+            problems.append("探讨轨迹既非反驳记录也非跳过声明（合法形态：①初步版→用户反驳[引原话]→结论如何更新；②用户跳过探讨：原因=X＋证据）")
+        # v4.4.1 盲审B-4：不可逆决策不允许无原话记录收敛
+        if _rev_of(pts) == "🔴" and not quoted:
+            problems.append("可逆性=🔴（不可逆决策）的探讨轨迹须至少一处用户原话引用「…」——不可逆决定不允许无记录收敛")
+    if "归位" not in missing:
+        gy = pts.get("归位", "")
+        if not (re.search(r"[×x]", gy) and re.search(r"S[1-5]|C类|跨域", gy)):
+            problems.append("归位段格式不对（应为：动作×对象 → 场景号 ｜ 出口 ｜ 理由一句话 ｜ 可逆性=🔴/🟡/🟢）")
+    st = pts.get("状态", "")
+    st_base = st.split("·")[0].strip()
+    if st_base and st_base not in STATUS:
+        problems.append("状态非法（应为 草案/已定/复盘/关闭，可加「·快轨」后缀；当前: %s）" % st[:20])
+    d = pts.get("复盘日期", "")
+    if d and "待补充" not in d:
+        if not re.search(r"\d{4}-\d{2}-\d{2}", d):
+            problems.append("复盘日期格式应为 YYYY-MM-DD（当前: %s）" % d[:20])
+    chain = pts.get("决策链", "")
+    if chain and "可选" not in chain and "待补充" not in chain:
+        ids = re.findall(r"DR-\d{8}[\w\-]*", chain)
+        if not ids:
+            problems.append("决策链字段应引用关联 DR id（如 DR-20260902-001，多个用顿号分隔）；当前: %s" % chain[:30])
+    # ── 质量下限（自 check_output.py check_dr 移入：DR 校验唯一入口承接，防绿灯幻觉回潮） ──
+    opt = pts.get("选项", "")
+    if opt and ("不做" not in opt and "维持现状" not in opt):
+        problems.append("选项未含「不做/维持现状」（不做是每个决策的真实备选）")
+    dec = pts.get("决定", "")
+    if "已定" in st and "用户拍板：" not in dec:
+        problems.append("状态已定但决定字段无「用户拍板：」原文（无拍板原文不得写已定）")
+    rev = (pts.get("复盘日期", "") or "").strip()
+    if "已定" in st and (not rev or "待补充" in rev):
+        problems.append("状态已定但缺复盘日期（fm-02：没有复盘日期的 DR 不许标已定）")
+    con = (pts.get("反方意见", "") or "").strip()
+    if not con or con.startswith("无"):
+        problems.append("反方意见为空/「无」——反方非空且必须具体到可反驳")
+    else:
+        out_ok = bool(re.search(FALSIFY_STRONG, con)) or bool(re.search(FALSIFY_NEG, con))
+        ok_cond = bool(re.search(CON_RE, con)) and out_ok
+        ok_trigger = bool(re.search(TRIGGER_RE, con)) and out_ok
+        if not (ok_cond or ok_trigger):
+            miss = []
+            if not (bool(re.search(CON_RE, con)) or bool(re.search(TRIGGER_RE, con))):
+                miss.append("①具体条件（若/一旦/竞品降价则…，什么事实成立）")
+            if not out_ok:
+                miss.append("②可反驳出口（本决定 失效/被推翻/砍错/做错，或推翻条件=拿到<什么数据>）")
+            problems.append("反方意见是稻草人（缺 %s）——模板：若<什么事实成立>，则本决定<失效/需重估/砍错>；"
+                            "推翻条件=拿到<什么数据>" % "、".join(miss))
+    riskv = (pts.get("风险", "") or "").strip()
+    if riskv:
+        segs = [x for x in re.split(r"[；;\n]", riskv) if x.strip()]
+        if segs and all("未命中" in x for x in segs):
+            problems.append("风险全部「未命中」——至少 1 个真实风险点，或诚实论证为何全未命中")
+    basis = (pts.get("依据", "") or "").strip()
+    if basis and not re.search(r"ref-0[1-6]|fm-0[1-6]", basis):
+        problems.append("依据缺 ref/fm 引用格式（应标注 ref-0X/fm-0X 哪条）")
+    return missing, problems
+
+
+def render_text(pts):
+    lines = ["# DR-%s-<slug>（日期由脚本自动填入，slug 取自问题字段）" % DR_DATE]
+    for f in FIELDS + SECTION_FIELDS:
+        v = pts.get(f, "").strip() or "【待补充】%s" % HINTS[f]
+        lines.append("- %s：%s" % (f, v))
+    for k in OPTIONAL:
+        if pts.get(k, "").strip():
+            lines.append("- %s：%s" % (k, pts[k].strip()))
+    return "\n".join(lines)
+
+
+def esc(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+
+def _tick(v):
+    """齐性自检逐字段实况打勾（v4.4.1 盲审B-2：禁止无条件绿勾）。"""
+    v = (v or "").strip()
+    return "✓" if (v and not v.startswith("【待补充】")) else "✗缺"
+
+
+def _rev_of(pts):
+    """可逆性：显式键 > 归位段内。返回 🔴/🟡/🟢 或 None。"""
+    v = pts.get("可逆性", "") or ""
+    if not v:
+        m = re.search(r"可逆性\s*[=:＝]\s*([🔴🟡🟢])", pts.get("归位", ""))
+        v = m.group(1) if m else ""
+    return v if v in ("🔴", "🟡", "🟢") else None
+
+
+def _is_compact(pts):
+    if "快轨" in pts.get("状态", ""):
+        return True
+    return _rev_of(pts) == "🟢"
+
+
+def _scene(pts):
+    blob = pts.get("问题", "") + pts.get("归位", "")
+    m = re.search(r"S([1-5])", blob)
+    return ("S" + m.group(1)) if m else None
+
+
+def _gauge(conf):
+    """结论卡 SVG 仪表：三档词→读数（档案仪表允许百分比，台面禁）。"""
+    m = re.search(r"(中高|高|中)", conf or "")
+    if not m:
+        return ""
+    frac = {"高": 0.9, "中高": 0.7, "中": 0.5}[m.group(1)]
+    pct = int(frac * 100)
+    ang = (180 - 180 * frac) * 3.141592653589793 / 180.0
+    x, y = round(110 + 76 * __import__("math").cos(ang), 1), round(108 - 76 * __import__("math").sin(ang), 1)
+    basis = ""
+    parts = re.split(r"[·；;]", conf, maxsplit=1)
+    if len(parts) > 1 and parts[1].strip():
+        basis = '<div class="basis">置信度依据：%s</div>' % esc(parts[1].strip())
+    label = m.group(1) + ("档" if m.group(1) != "高" else "")
+    return ('<svg width="190" height="112" viewBox="0 0 220 130" role="img" aria-label="置信度">'
+            '<defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="0">'
+            '<stop offset="0" stop-color="#6b7cff"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>'
+            '<path d="M34,108 A76,76 0 0 1 186,108" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6" stroke-linecap="round"/>'
+            '<path d="M34,108 A76,76 0 0 1 %s,%s" fill="none" stroke="url(#gg)" stroke-width="6" stroke-linecap="round"/>'
+            '<text x="62" y="26" font-size="10.5" fill="#8b93a1" text-anchor="middle">中</text>'
+            '<text x="158" y="26" font-size="10.5" fill="#8b93a1" text-anchor="middle">中高</text>'
+            '<text x="196" y="96" font-size="10.5" fill="#8b93a1" text-anchor="middle">高</text>'
+            '<text x="110" y="85" font-size="27" fill="#e9ebf2" text-anchor="middle" class="num" font-weight="700">%d%%</text>'
+            '<text x="110" y="106" font-size="10.5" fill="#8b93a1" text-anchor="middle">置信度 · %s</text></svg>' % (x, y, pct, label)), basis
+
+
+def _radar_and_hits(riskv):
+    segs = [x.strip() for x in re.split(r"[；;\n]", riskv or "") if x.strip()]
+    info = {dim: {"hit": False, "lv": 0, "note": ""} for dim, _ in RISK_DIMS}
+    for seg in segs:
+        for dim, _ in RISK_DIMS:
+            hit_dim = seg.startswith(dim) or any(k in seg[:14] for k in DIM_KWS[dim])
+            if hit_dim and not info[dim]["hit"]:
+                info[dim]["hit"] = True
+                info[dim]["note"] = seg
+                if "未命中" not in seg:
+                    mlv = re.search(r"(高|中|低)", seg.replace("高风险", ""))
+                    info[dim]["lv"] = {"高": 3, "中": 2, "低": 1}.get(mlv.group(1), 2) if mlv else 2
+                break
+    cx, cy, R = 160.0, 125.0, 98.0
+    import math
+    pts, rows, misses = [], [], []
+    for i, (dim, color) in enumerate(RISK_DIMS):
+        a = math.radians(90 - 60 * i)
+        vx, vy = cx + R * math.cos(a), cy - R * math.sin(a)
+        d = info[dim]
+        f = {0: 0.0, 1: 0.33, 2: 0.66, 3: 1.0}[d["lv"]]
+        pts.append("%.1f,%.1f" % (cx + f * (vx - cx), cy + f * (vy - cy)))
+        ax, ay = (cx + (R + 22) * math.cos(a), cy - (R + 22) * math.sin(a))
+        anchor = "middle" if abs(ax - cx) < 30 else ("start" if ax > cx else "end")
+        strong = ' font-weight="700"' if d["lv"] else ""
+        fill = color if d["lv"] else "#5b6270"
+        label = dim + (" · %s" % {1: "低", 2: "中", 3: "高"}[d["lv"]] if d["lv"] else " · 未命中")
+        rows.append('<text x="%.1f" y="%.1f" font-size="11.5" fill="%s" text-anchor="%s"%s>%s</text>'
+                    % (ax, ay, fill, anchor, strong, esc(label)))
+        note = re.sub(r"^(%s)\s*[：:（(]?" % dim, "", d["note"] or "")
+        note = note.replace("未命中", "", 1).strip(" ：:，,。（）—") if "未命中" in (d["note"] or "") else note
+        if d["lv"]:
+            rows.append('<div class="item"><span class="dot" style="--c:%s"></span><b>%s</b><span class="lv">命中 · %s</span><p>%s</p></div>'
+                        % (color, dim, {1: "低", 2: "中", 3: "高"}[d["lv"]], esc(note or "——")))
+        else:
+            reason = note or "风险字段未提及——复盘补一句理由"
+            misses.append('<div class="m"><span class="dot" style="--c:%s"></span><b>%s · 未命中</b>——%s</div>'
+                          % (color, dim, esc(reason)))
+    polygon = '<polygon points="%s" fill="#6b7cff" opacity="0.14" stroke="#6b7cff" stroke-width="1.5"/>' % " ".join(pts)
+    grid = ('<polygon points="160,27 244.9,76 244.9,174 160,223 75.1,174 75.1,76" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>'
+            '<polygon points="160,59.7 216.6,92.4 216.6,157.6 160,190.3 103.4,157.6 103.4,92.4" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="1"/>'
+            '<polygon points="160,92.4 188.3,108.7 188.3,141.3 160,157.6 131.7,141.3 131.7,108.7" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="1"/>'
+            '<line x1="160" y1="125" x2="160" y2="27" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="244.9" y2="76" stroke="rgba(255,255,255,.07)"/>'
+            '<line x1="160" y1="125" x2="244.9" y2="174" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="160" y2="223" stroke="rgba(255,255,255,.07)"/>'
+            '<line x1="160" y1="125" x2="75.1" y2="174" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="75.1" y2="76" stroke="rgba(255,255,255,.07)"/>')
+    svg = ('<svg viewBox="0 0 320 262" role="img" aria-label="风险雷达">%s%s%s</svg>' % (grid, polygon, "".join(rows)))
+    hitlist = '<div class="hitlist">%s%s<div class="miss">%s</div></div>' % (
+        "".join(r for r in rows if "<div" in r), "", "".join(misses))
+    return svg, hitlist
+
+
+def _shift_svg(pts):
+    shift = (pts.get("换挡条件", "") or "").strip()
+    review = pts.get("复盘日期", "") or "待填"
+    if not shift:
+        return ('<div class="capnote">复盘日 %s——对照「当时前提 vs 实际结果」（fm-04）。</div>' % esc(review))
+    short = shift if len(shift) <= 44 else shift[:44] + "…"
+    return ('<svg width="100%%" viewBox="0 0 720 106" role="img" aria-label="换挡时间线">'
+            '<line x1="30" y1="54" x2="700" y2="54" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>'
+            '<circle cx="70" cy="54" r="5" fill="#e9ebf2"/>'
+            '<text x="70" y="78" font-size="11.5" fill="#c0c6d2" text-anchor="middle" font-weight="600">%s 决定生效</text>'
+            '<rect x="294" y="48" width="12" height="12" rx="2.5" transform="rotate(45 300 54)" fill="#6b7cff"/>'
+            '<text x="300" y="36" font-size="11.5" fill="#c0c6d2" text-anchor="middle" font-weight="600">监测</text>'
+            '<text x="300" y="15" font-size="11" fill="#8b9bff" text-anchor="middle" font-weight="600">%s</text>'
+            '<text x="300" y="97" font-size="11" fill="#e9ebf2" text-anchor="middle" font-weight="600">触发 → 按换挡条件改判</text>'
+            '<circle cx="560" cy="54" r="7" fill="none" stroke="#6b7cff" stroke-width="2.2"/>'
+            '<text x="560" y="36" font-size="11.5" fill="#8b9bff" text-anchor="middle" font-weight="700">复盘 %s</text>'
+            '<text x="560" y="78" font-size="10.5" fill="#8b93a1" text-anchor="middle">前提 vs 实际结果</text></svg>'
+            '<div class="capnote">信号可证伪：口径变化＝提前复盘。%s</div>'
+            % (esc(datetime.date.today().strftime("%m-%d")), esc(short), esc(review), esc("")))
+
+
+def _bars(dead, allow_bars=True):
+    rows = []
+    for seg in [x.strip() for x in re.split(r"[；;\n]", dead or "") if x.strip()]:
+        m = re.search(r"评分\s*[=:＝]\s*(\d{1,3})", seg)
+        name = re.split(r"[＝=：:]", seg, maxsplit=1)[0].strip()
+        desc = seg[len(re.split(r"[＝=：:]", seg, maxsplit=1)[0]):].lstrip("＝=：: ").strip()
+        if m and allow_bars:
+            w = min(int(m.group(1)), 100)
+            rows.append('<div class="dbar"><div class="dname">%s</div><div class="dtrack"><div class="dfill" style="width:%d%%"></div></div><div class="dscore num">%d</div><div class="ddesc">%s</div></div>'
+                        % (esc(name), w, w, esc(desc)))
+        else:
+            rows.append('<div class="drow"><b>%s</b>：%s</div>' % (esc(name), esc(desc)))
+    return "".join(rows)
+
+
+def _steps(v):
+    parts = [x.strip() for x in re.split(r"[；;]", v or "") if x.strip()]
+    if len(parts) <= 1 and "\n" in (v or ""):
+        parts = [x.strip() for x in v.splitlines() if x.strip()]
+    lis = []
+    for i, p in enumerate(parts, 1):
+        lis.append('<li><span class="n">%d</span>%s</li>' % (i, esc(p)))
+    return '<ul class="trace">%s</ul>' % "".join(lis)
+
+
+_HTML_V07 = """<!DOCTYPE html>
+<html lang="zh-CN" data-theme="__THEME__">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decision Brief · __DRID__</title>
+<style>
+  :root{
+    --bg:#0e1013; --card:#15181e; --ink:#e9ebf2; --body:#c0c6d2; --muted:#8b93a1; --faint:#5b6270;
+    --line:rgba(255,255,255,.08); --hair:rgba(255,255,255,.05); --track:rgba(255,255,255,.07);
+    --indigo:#6b7cff; --indigo2:#8b9bff; --violet:#a78bfa; --teal:#3fd0b6;
+    --amber:#ffb454; --rose:#ff6b8a; --cyan:#4cc9f5; --grid:rgba(255,255,255,.07);
+    --num:"Didot","Bodoni 72","Playfair Display",Georgia,"Times New Roman",serif;
+  }
+  html[data-theme="light"]{
+    --bg:#fcfcfa; --card:#ffffff; --ink:#15171c; --body:#33373f; --muted:#82878f; --faint:#aab0b8;
+    --line:#e6e8ec; --hair:#f0f1f4; --track:#eef0f3; --grid:#eef0f3;
+    --indigo:#2742c8; --indigo2:#2742c8; --violet:#2742c8; --amber:#b7791f; --rose:#b3455e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:
+      radial-gradient(1100px 560px at 12% -8%, rgba(107,124,255,.10), transparent 62%),
+      radial-gradient(900px 520px at 108% 108%, rgba(167,139,250,.08), transparent 60%),
+      var(--bg);
+    color:var(--body);
+    font:13.5px/1.75 -apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    padding:0 20px 26px;-webkit-font-smoothing:antialiased}
+  html[data-theme="light"] body{background:var(--bg)}
+  .wrap{max-width:1160px;margin:0 auto}
+  .nav{position:sticky;top:0;z-index:30;margin:0 -20px 18px;padding:9px 20px;
+    display:flex;gap:16px;justify-content:center;flex-wrap:wrap;
+    background:rgba(14,16,19,.78);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  html[data-theme="light"] .nav{background:rgba(252,252,250,.85)}
+  .nav a{font-size:11.5px;color:var(--muted);text-decoration:none;letter-spacing:.03em}
+  .nav a:hover{color:var(--indigo2)}
+  .nav .b{color:var(--faint)}
+  .masthead{padding-top:10px}
+  .kicker{font-size:10.5px;letter-spacing:.24em;color:var(--muted);font-weight:600}
+  .kicker .no{font-family:var(--num);letter-spacing:.08em}
+  h1{font-size:25px;font-weight:800;line-height:1.4;margin:10px 0 8px;color:var(--ink)}
+  .meta{font-size:12px;color:var(--muted);padding-bottom:14px}
+  .meta .ir{display:inline-block;background:linear-gradient(90deg,#6b7cff,#a78bfa);color:#fff;
+    border-radius:999px;padding:1.5px 10px;font-size:11px;font-weight:600;margin-right:6px;
+    box-shadow:0 0 14px rgba(107,124,255,.35)}
+  html[data-theme="light"] .meta .ir{background:var(--ink);box-shadow:none}
+  .meta i{font-style:normal;color:var(--faint);padding:0 8px}
+  .gradline{height:2px;border-radius:2px;margin-top:2px;
+    background:linear-gradient(90deg,#6b7cff,#a78bfa 34%,#3fd0b6 66%,rgba(63,208,182,0) 96%)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px 26px;margin-top:20px}
+  .full{grid-column:1/-1}
+  @media (max-width:900px){.grid{grid-template-columns:1fr}}
+
+  .h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .h .no{font-family:var(--num);font-size:14px;color:var(--indigo2)}
+  .h .t{font-size:13.5px;font-weight:700;letter-spacing:.04em;color:var(--ink)}
+  .h .rule{flex:1;height:1px;background:var(--line)}
+
+  .hero{background:linear-gradient(180deg,#171b22,#13161c);border:1px solid var(--line);
+    border-left:3px solid var(--indigo);border-radius:14px;padding:20px 24px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 20px 50px rgba(0,0,0,.45)}
+  html[data-theme="light"] .hero{background:var(--card);box-shadow:0 1px 2px rgba(21,23,28,.04),0 10px 28px rgba(21,23,28,.05)}
+  .verdict{display:flex;gap:26px;align-items:center;flex-wrap:wrap}
+  .verdict .right{flex:1;min-width:280px}
+  .rec{font-size:18.5px;font-weight:700;line-height:1.65;color:var(--ink)}
+  .rec em{font-style:normal;font-weight:700;
+    background:linear-gradient(90deg,#8b9bff,#c4b5fd);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  html[data-theme="light"] .rec em{color:var(--indigo);background:none}
+  .basis{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .next{margin-top:12px;background:rgba(107,124,255,.10);border:1px solid rgba(107,124,255,.25);
+    border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--body)}
+  .next b{color:var(--indigo2)}
+
+  .why{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--hair)}
+  .why:last-child{border-bottom:none}
+  .why .no{font-family:var(--num);font-size:21px;color:var(--faint);line-height:1.3;min-width:26px}
+  .why .so{color:var(--ink);font-weight:600}
+  .why .arrow{color:var(--faint);padding:0 5px}
+
+  .drow{padding:9px 0;border-bottom:1px solid var(--hair);font-size:13px;line-height:1.8}
+  .drow b{color:var(--ink)}
+  .dbar{margin:12px 0}
+  .dname{font-size:13px;color:var(--ink);font-weight:600;display:inline-block;min-width:120px}
+  .dtrack{display:inline-block;width:52%;height:9px;border-radius:4.5px;background:var(--track);vertical-align:middle}
+  .dfill{height:9px;border-radius:4.5px;background:linear-gradient(90deg,#6b7cff,#a78bfa)}
+  .dscore{display:inline-block;font-size:17px;color:var(--ink);font-weight:700;margin-left:10px;
+    font-variant-numeric:tabular-nums}
+  .ddesc{font-size:11.5px;color:var(--muted);margin-top:4px}
+
+  .flip{border-left:3px solid var(--rose);background:rgba(255,107,138,.06);border-radius:0 12px 12px 0;
+    padding:13px 16px;font-size:13.5px;line-height:1.85;color:var(--ink)}
+  .flip .q{color:var(--rose);font-weight:700}
+  .capnote{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .basisline{font-size:12px;color:var(--muted);margin-top:8px}
+
+  .riskrow{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .riskrow svg{flex:none;width:295px;max-width:100%}
+  .hitlist{flex:1;min-width:230px}
+  .hitlist .item{display:flex;gap:9px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--hair)}
+  .hitlist .dot{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none;
+    box-shadow:0 0 9px var(--c);transform:translateY(-1px)}
+  .hitlist b{font-size:12.5px;color:var(--ink);font-weight:650;white-space:nowrap}
+  .hitlist .lv{font-size:11px;color:var(--amber);font-weight:600;white-space:nowrap}
+  .hitlist p{font-size:12px;color:var(--muted);flex:1}
+  .hitlist .miss{margin-top:9px;border-top:1px dashed var(--hair);padding-top:7px}
+  .hitlist .m{display:flex;gap:8px;align-items:baseline;font-size:11.5px;color:var(--muted);padding:2.5px 0}
+  .hitlist .m .dot{width:6px;height:6px;border-radius:50%;background:transparent;
+    border:1.5px solid var(--c);box-shadow:none;transform:translateY(0)}
+  .hitlist .m b{color:var(--body);font-weight:600}
+
+  .btag{margin-top:22px;border:1px dashed var(--amber);background:rgba(255,180,84,.07);
+    border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--amber);font-weight:600}
+
+  .arch{margin-top:24px;border-top:1px solid var(--line)}
+  .arch summary{cursor:pointer;list-style:none;font-size:12.5px;color:var(--muted);
+    letter-spacing:.06em;padding:13px 0;user-select:none}
+  .arch summary::-webkit-details-marker{display:none}
+  .arch summary:after{content:"▴";float:right;color:var(--faint)}
+  .arch:not([open]) summary:after{content:"▾"}
+  .arch .inner{display:grid;grid-template-columns:1fr 1fr;gap:18px 30px;padding-bottom:6px;margin-top:4px}
+  .arch .inner .full{grid-column:1/-1}
+  @media (max-width:900px){.arch .inner{grid-template-columns:1fr}}
+
+  .trace{list-style:none}
+  .trace li{position:relative;padding:0 0 13px 34px;font-size:12.5px;line-height:1.75}
+  .trace .n{position:absolute;left:0;top:-1px;font-family:var(--num);font-weight:700;
+    font-size:14px;color:var(--violet)}
+  .trace li:not(:last-child):before{content:"";position:absolute;left:4px;top:20px;bottom:3px;
+    width:1px;background:var(--hair)}
+  .assump{font-size:12.5px;color:#f5c069;background:rgba(255,180,84,.07);border-radius:10px;
+    padding:8px 12px;margin:4px 0}
+  html[data-theme="light"] .assump{color:var(--amber);background:#faf4e8}
+  .audit{font-size:11px;color:var(--muted);line-height:2}
+  .audit b{color:var(--body);font-weight:600}
+  .ledger{margin-top:10px;font-size:11px;color:var(--muted);line-height:1.9;border-top:1px dashed var(--hair);padding-top:8px}
+  .ledger b{color:var(--body);display:block;margin-bottom:3px;letter-spacing:.05em}
+
+  footer{margin-top:26px;border-top:1px solid var(--line);padding-top:12px;text-align:center;
+    font-size:11px;color:var(--faint);letter-spacing:.04em}
+  .noise{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.03;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+  html[data-theme="light"] .noise{display:none}
+  svg text{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  svg .num{font-family:var(--num)}
+  @media print{
+    body{background:#fff !important;color:#222;padding:10mm}
+    .nav{display:none}
+    .noise{display:none}
+    .hero{background:#fff;box-shadow:none}
+  }
+</style>
+</head>
+<body>
+<div class="noise" aria-hidden="true"></div>
+<div class="wrap">
+
+  <nav class="nav">
+    <a href="#s01">01 结论</a><a href="#s02">02 为什么</a><a href="#s03">03 对比</a><a href="#s04">04 换挡</a><a href="#s05">05 风险</a><a href="#s06">06 翻车点</a><a href="#s07">07 轨迹</a><a href="#s08">08 假设</a><span class="b">｜</span><span style="font-size:11.5px;color:var(--faint)">__DRID__ · 决策档案</span>
+  </nav>
+
+  <header class="masthead">
+    <div class="kicker">DECISION BRIEF · <span class="no">__DRID__</span></div>
+    <h1>__TITLE__</h1>
+    <div class="meta"><span class="ir">__PILL__</span>__OBJ__<i>·</i>状态：__STATUS__<i>·</i>复盘日 __REVIEW__</div>
+    <div class="gradline"></div>
+  </header>
+
+  <div class="grid">
+    <div class="hero full" id="s01">
+      <div class="h"><span class="no">01</span><span class="t">结论</span><span class="rule"></span></div>
+      <div class="verdict">
+        __GAUGE__
+        <div class="right">
+          <div class="rec">建议：<em>__REC__</em></div>
+          __BASIS__
+          __NEXT__
+        </div>
+      </div>
+    </div>
+
+    <section id="s02">
+      <div class="h"><span class="no">02</span><span class="t">为什么</span><span class="rule"></span></div>
+      __WHY__
+    </section>
+
+    <section id="s03">
+      <div class="h"><span class="no">03</span><span class="t">为什么不选别的</span><span class="rule"></span></div>
+      __DEAD__
+    </section>
+
+    <section class="full" id="s04">
+      <div class="h"><span class="no">04</span><span class="t">换挡条件 · 什么情况改主意</span><span class="rule"></span></div>
+      __SHIFT__
+    </section>
+
+    <section id="s05">
+      <div class="h"><span class="no">05</span><span class="t">风险六维 · 命中与应对</span><span class="rule"></span></div>
+      <div class="riskrow">__RISK__</div>
+      <div class="capnote">六维＝固定板块（行为准则②，机器校验逐维）；命中与未命中均须一句理由（不允许无论证的全绿）。</div>
+    </section>
+
+    <section id="s06">
+      <div class="h"><span class="no">06</span><span class="t">最可能翻车的点 · 欢迎怼</span><span class="rule"></span></div>
+      <div class="flip"><span class="q">__FLIP__</span><b>不同意就怼，复盘时对答案。</b></div>
+    </section>
+  </div>
+
+  __BTAG__
+
+  <details class="arch" open>
+    <summary id="s07">存档区 · 探讨轨迹 / 归位 / 假设与依据（复盘用，可点收起）</summary>
+    <div class="inner">
+      <section id="s07x">
+        <div class="h"><span class="no">07</span><span class="t">探讨轨迹 · 这个结论怎么长出来的</span><span class="rule"></span></div>
+        __TRACE__
+      </section>
+      <section id="s08">
+        <div class="h"><span class="no">08</span><span class="t">归位 / 假设与依据</span><span class="rule"></span></div>
+        <div class="assump">归位（只读）：__GUIWEI__</div>
+        __ASSUMP__
+        <div class="basisline">依据（档案层）：__FMREF__ ｜ 决策链：__CHAIN__</div>
+        <div class="audit" style="margin-top:16px"><b>齐性自检</b> —— __AUDIT__</div>
+        <div class="ledger"><b>9 字段总账（原始留痕，复盘不改动）</b>__LEDGER__</div>
+      </section>
+    </div>
+  </details>
+
+  <footer>决策简报 · 由产品军师（pm-strategist）生成 · 自包含单文件 · 零外部依赖 · 打印自动转浅色</footer>
+</div>
+</body></html>
+"""
+
+_HTML_LEGACY = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -74,7 +616,7 @@ _HTML = """<!DOCTYPE html>
 <body><div class="wrap">
 <div class="kicker">PM-STRATEGIST · DECISION RECORD</div>
 <h1>__TITLE__</h1>
-<div class="meta">生成日期 __DATEFULL__ ｜ decision-record.py 渲染（总案 v2.1 · D10 HTML 单文件 / D20 默认落盘 ./决策记录/）</div>
+<div class="meta">生成日期 __DATEFULL__ ｜ decision-record.py 渲染（旧版回退模板 dr_theme_legacy）</div>
 <div class="badges">__BADGES__</div>
 <table>
 __ROWS__
@@ -89,94 +631,11 @@ __ROWS__
 """
 
 
-def parse_points(text):
-    """key: value / key：value 逐行解析（全半角冒号兼容）；JSON 对象也认。"""
-    pts = {}
-    try:
-        obj = json.loads(text)
-        if isinstance(obj, dict):
-            return {k: str(v) for k, v in obj.items()}
-    except (ValueError, TypeError):
-        pass
-    known = FIELDS + [CHAIN_FIELD]
-    for line in text.splitlines():
-        line = line.strip().lstrip("-• ")
-        if not line or line.startswith("#"):
-            continue
-        for sep in ("：", ":"):
-            if sep in line:
-                k, v = line.split(sep, 1)
-                k = k.strip()
-                if k in known:
-                    pts[k] = v.strip()
-                break
-    return pts
-
-
-def validate(pts):
-    missing = [f for f in REQUIRED if not pts.get(f)]
-    problems = []
-    st = pts.get("状态", "")
-    st_base = st.split("·")[0].strip()
-    if st_base and st_base not in STATUS:
-        problems.append("状态非法（应为 草案/已定/复盘/关闭，可加「·快轨」后缀；当前: %s）" % st[:20])
-    d = pts.get("复盘日期", "")
-    if d and "待补充" not in d:
-        if not re.search(r"\d{4}-\d{2}-\d{2}", d):
-            problems.append("复盘日期格式应为 YYYY-MM-DD（当前: %s）" % d[:20])
-    chain = pts.get(CHAIN_FIELD, "")
-    if chain and "待补充" not in chain:
-        ids = re.findall(r"DR-\d{8}[\w\-]*", chain)
-        if not ids:
-            problems.append("决策链字段应引用关联 DR id（如 DR-20260902-001，多个用顿号分隔）；当前: %s" % chain[:30])
-    return missing, problems
-
-
-def render_text(pts):
-    lines = ["# DR-%s-<slug>（日期由脚本自动填入，slug 取自问题字段）" % DR_DATE]
-    for f in FIELDS:
-        v = pts.get(f, "").strip() or "【待补充】%s" % HINTS[f]
-        lines.append("- %s：%s" % (f, v))
-    if pts.get(CHAIN_FIELD, "").strip():
-        lines.append("- %s：%s" % (CHAIN_FIELD, pts[CHAIN_FIELD].strip()))
-    return "\n".join(lines)
-
-
-def esc(s):
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-
-
-def render_html(pts):
-    st = pts.get("状态", "").strip() or "草案"
-    st_base = st.split("·")[0].strip() or "草案"
-    bcls = {"已定": "ok", "复盘": "info", "关闭": "off"}.get(st_base, "draft")
-    badges = '<span class="badge %s">状态：%s</span>' % (bcls, esc(st))
-    if "快轨" in st:
-        badges += '<span class="badge fast">快轨（可逆且低影响 · 四件套流程）</span>'
-    review = pts.get("复盘日期", "").strip()
-    badges += '<span class="badge">复盘日期：%s</span>' % (esc(review) if review else "待填")
-    rows = []
-    for f in FIELDS:
-        v = pts.get(f, "").strip() or "【待补充】" + HINTS[f]
-        rows.append("<tr><th>%s</th><td>%s</td></tr>" % (f, esc(v)))
-    if pts.get(CHAIN_FIELD, "").strip():
-        rows.append("<tr><th>%s</th><td>%s</td></tr>" % (CHAIN_FIELD, esc(pts[CHAIN_FIELD].strip())))
-    title = pts.get("问题", "").strip() or "DR-%s" % DR_DATE
-    if len(title) > 46:
-        title = title[:46] + "…"
-    html = (_HTML
-            .replace("__TITLE__", esc(title))
-            .replace("__DATEFULL__", datetime.date.today().isoformat())
-            .replace("__BADGES__", badges)
-            .replace("__ROWS__", "\n".join(rows)))
-    return html
-
-
 def settings_file():
     d = os.environ.get("PM_STRATEGIST_PROFILE_DIR") or os.environ.get("PM_STRATEGIST_PROFILE")
     if d and os.path.isfile(d):
         d = os.path.dirname(d)
-    # v4.3.0：默认落 skill 目录 config/（相对解析，不写死平台目录；零平台绑定）
+    # 默认落 skill 目录 config/（相对解析，不写死平台目录；零平台绑定）
     d = d or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
     return os.path.join(d, "pm_settings.json")
 
@@ -198,7 +657,7 @@ def save_settings(s):
 
 
 def resolve_out_dir(ask=True):
-    """落盘目录解析（P2-3 可配置默认；D20 首次问一次存配置文件）。"""
+    """落盘目录解析（可配置默认；首次问一次存配置文件）。"""
     env = os.environ.get("PM_STRATEGIST_DR_DIR")
     if env:
         return env, "环境变量 PM_STRATEGIST_DR_DIR"
@@ -219,39 +678,217 @@ def resolve_out_dir(ask=True):
     return d, "默认值（非交互环境未询问；可用 --out 或 PM_STRATEGIST_DR_DIR 覆盖）"
 
 
+def render_html(pts, settings=None):
+    s = settings if settings is not None else load_settings()
+    if s.get("dr_theme_legacy"):
+        return _render_legacy(pts)
+    theme = s.get("dr_theme", "dark")
+    st = pts.get("状态", "").strip() or "草案"
+    st_base = st.split("·")[0].strip() or "草案"
+    rev = _rev_of(pts)
+    pill = {("🔴"): "不可逆 · 退不回", "🟡": "拿不准 · 按退不回对待", "🟢": "可逆 · 随时可改"}.get(rev, "决策档案")
+    conf = pts.get("置信度", "") or ""
+    compact = _is_compact(pts)
+    if compact:
+        gauge = '<div class="basis">置信度：%s（紧凑档案：快轨/🟢轻决策）</div>' % (esc(conf) if conf else "未标注")
+        basis = ""
+    else:
+        gauge, basis = (("", "") if not conf else _gauge(conf))
+        if not gauge:
+            gauge = '<div class="basis">置信度未标注（台面三档词：高/中高/中）</div>'
+    rec = pts.get("决定", "") or "【待补充】"
+    rec = re.sub(r"^用户拍板：", "", rec)
+    next_raw = (pts.get("下一步", "") or "").strip()
+    next_box = ('<div class="next"><b>下一步（你）：</b>%s</div>' % esc(next_raw)) if next_raw else ""
+    why_items = [x.strip() for x in re.split(r"[；;\n]", pts.get("依据", "") or "") if x.strip()]
+    why = "".join('<div class="why"><div class="no">%d</div><div>%s</div></div>' % (i, esc(t))
+                  for i, t in enumerate(why_items, 1)) or '<div class="why"><div class="no">1</div><div>（依据见存档区）</div></div>'
+    dead = _bars(pts.get("落选死因", ""), allow_bars=not compact)
+    if not dead:
+        dead = "".join('<div class="drow"><b>选项</b>：%s</div>' % esc(x.strip())
+                       for x in re.split(r"[／/；;]", pts.get("选项", "")) if x.strip()) or \
+               '<div class="drow">落选死因未填（渲染可选键：落选死因=选项名＝死于…）</div>'
+    if compact:
+        shift_text = (pts.get("换挡条件", "") or "").strip()
+        shift = '<div class="capnote">%s复盘日 %s——对照「当时前提 vs 实际结果」（fm-04）。</div>' % (
+            (esc(shift_text) + "；") if shift_text else "", esc(pts.get("复盘日期", "") or "待填"))
+        _, hitlist = _radar_and_hits(pts.get("风险", ""))
+        risk = hitlist
+    else:
+        shift = _shift_svg(pts)
+        rsvg, hitlist = _radar_and_hits(pts.get("风险", ""))
+        risk = '%s%s' % (rsvg, hitlist)
+    flip = esc(pts.get("反方意见", "") or "（未填）")
+    trace = _steps(pts.get("探讨轨迹", ""))
+    assump_raw = [x.strip() for x in re.split(r"[\n；;]", pts.get("假设清单", "") or "") if x.strip()]
+    assump = "".join('<div class="assump">%s</div>' % esc(a) for a in assump_raw) or '<div class="assump">无——输入已全部确认</div>'
+    fmrefs = " · ".join(sorted(set(re.findall(r"(?:ref|fm)-0[1-6]", pts.get("依据", ""))))) or "（无 ref/fm 标注）"
+    chain = pts.get("决策链", "").strip() or "无（单决策）"
+    gy = pts.get("归位", "") or "（未填）"
+    opt_n = len([x for x in re.split(r"[／/；;]", pts.get("选项", "")) if x.strip()])
+    ass_n = len([x for x in re.split(r"[\n；;]", pts.get("假设清单", "")) if x.strip()])
+    tt_n = len([x for x in re.split(r"[；;\n]", pts.get("探讨轨迹", "")) if x.strip()])
+    audit = ("问题 %s · 选项 %s×%d · 决定 %s（%s） · 依据 %s · 反方 %s 双要素 · 风险 %s 六维 · 假设 %s×%d · "
+             "复盘日期 %s %s · 状态 %s %s · 探讨轨迹 %s %d 步 · 归位 %s"
+             % (_tick(pts.get("问题")), _tick(pts.get("选项")), opt_n, _tick(pts.get("决定")), st,
+                _tick(pts.get("依据")), _tick(pts.get("反方意见")), _tick(pts.get("风险")),
+                _tick(pts.get("假设清单")), ass_n, _tick(pts.get("复盘日期")), pts.get("复盘日期", "—") or "—",
+                _tick(st), st, _tick(pts.get("探讨轨迹")), tt_n, _tick(pts.get("归位"))))
+    scene = _scene(pts)
+    btag = ('<div class="btag">⚠️ %s</div>' % B_TAGS[scene]) if scene in B_TAGS else ""
+    ledger = "".join("<div>· %s：%s</div>" % (f, esc((pts.get(f, "") or "").strip() or "【待补充】"))
+                     for f in FIELDS)
+    title = pts.get("问题", "").strip() or "DR-%s" % DR_DATE
+    if len(title) > 46:
+        title = title[:46] + "…"
+    html = (_HTML_V07
+            .replace("__THEME__", "light" if theme == "light" else "dark")
+            .replace("__DRID__", "DR-%s" % DR_DATE)
+            .replace("__TITLE__", esc(title))
+            .replace("__PILL__", esc(pill))
+            .replace("__OBJ__", esc((pts.get("归位", "").split("→")[0].strip() if "→" in pts.get("归位", "") else "产品决策")))
+            .replace("__STATUS__", esc(st))
+            .replace("__REVIEW__", esc(pts.get("复盘日期", "") or "待填"))
+            .replace("__GAUGE__", gauge)
+            .replace("__REC__", esc(rec))
+            .replace("__BASIS__", basis)
+            .replace("__NEXT__", next_box)
+            .replace("__WHY__", why)
+            .replace("__DEAD__", dead)
+            .replace("__SHIFT__", shift)
+            .replace("__RISK__", risk)
+            .replace("__FLIP__", flip)
+            .replace("__BTAG__", btag)
+            .replace("__TRACE__", trace)
+            .replace("__GUIWEI__", esc(gy))
+            .replace("__ASSUMP__", assump)
+            .replace("__FMREF__", esc(fmrefs))
+            .replace("__CHAIN__", esc(chain))
+            .replace("__AUDIT__", audit)
+            .replace("__LEDGER__", ledger))
+    return html
+
+
+def _render_legacy(pts):
+    st = pts.get("状态", "").strip() or "草案"
+    st_base = st.split("·")[0].strip() or "草案"
+    bcls = {"已定": "ok", "复盘": "info", "关闭": "off"}.get(st_base, "draft")
+    badges = '<span class="badge %s">状态：%s</span>' % (bcls, esc(st))
+    if "快轨" in st:
+        badges += '<span class="badge fast">快轨（可逆且低影响 · 四件套流程）</span>'
+    review = pts.get("复盘日期", "").strip()
+    badges += '<span class="badge">复盘日期：%s</span>' % (esc(review) if review else "待填")
+    rows = []
+    for f in FIELDS + SECTION_FIELDS:
+        v = pts.get(f, "").strip() or "【待补充】" + HINTS[f]
+        rows.append("<tr><th>%s</th><td>%s</td></tr>" % (f, esc(v)))
+    if pts.get("决策链", "").strip():
+        rows.append("<tr><th>决策链</th><td>%s</td></tr>" % esc(pts["决策链"].strip()))
+    title = pts.get("问题", "").strip() or "DR-%s" % DR_DATE
+    if len(title) > 46:
+        title = title[:46] + "…"
+    return (_HTML_LEGACY
+            .replace("__TITLE__", esc(title))
+            .replace("__DATEFULL__", datetime.date.today().isoformat())
+            .replace("__BADGES__", badges)
+            .replace("__ROWS__", "\n".join(rows)))
+
+
 def self_test():
-    good = {"问题": "示例占位：A品要不要砍（S2）", "选项": "砍/不砍（含维持现状）", "决定": "推荐先收缩后观察",
-            "依据": "ref-02+fm-03", "反方意见": "若为渠道入场券则砍错；推翻条件=拿到各SKU条码对应的渠道合约条款", "风险": "供应链：库存",
-            "假设清单": "⚠️ 假设·待验证：渠道合约Q4到期", "复盘日期": "2026-12-31", "状态": "草案"}
+    good = {"问题": "示例占位：A品要不要砍（场景S2）", "选项": "砍/不砍（含维持现状）", "决定": "推荐先收缩后观察",
+            "依据": "ref-02 单品贡献度框架；fm-03 RICE 打分", "反方意见": "若为渠道入场券则砍错；推翻条件=拿到各SKU条码对应的渠道合约条款",
+            "风险": "法规未命中（宣称无涉）；市场未命中（需求无反向信号）；竞争（竞品Q4抢合约，盯渠道周报）；供应链：库存积压中；财务未命中（清仓损益可控）；组织未命中（无排产缺口）",
+            "假设清单": "⚠️ 假设·待验证：渠道合约Q4到期", "复盘日期": "2026-12-31", "状态": "草案",
+            "探讨轨迹": "初步版建议直接砍；用户反驳「竞品 Q4 好像在挖我们经销商」→ 结论更新为砍＋60 天缓冲",
+            "归位": "删×产品组合 → S2 ｜ 归位成功 ｜ 三线资源互挤、B 线贡献度连续下滑 ｜ 可逆性=🔴",
+            "置信度": "中高 · 贡献度连续四季下滑；扣分项——贡献度口径待财务确认",
+            "下一步": "本周内确认渠道合约有无条码数门槛",
+            "落选死因": "轻量化改造＝死于换线成本回收期超出预算窗；维持现状＝代价是每月倒贴仓储与陈列（评分=32）",
+            "换挡条件": "若大促动销低于品类均值八成 → 改判留线观察"}
     m1, p1 = validate(good)
     ok = not m1 and not p1
-    bad_missing, _ = validate({"问题": "x"})
-    caught = bad_missing == ["选项", "决定"]
-    comp = dict(good); comp[CHAIN_FIELD] = "DR-20260902-001、DR-20260902-002"
-    chain_ok = not validate(comp)[1]
-    badchain = dict(good); badchain[CHAIN_FIELD] = "就是那两个"
-    chain_caught = bool(validate(badchain)[1])
-    html = render_html(comp)
-    html_ok = ("<!DOCTYPE html>" in html and "</html>" in html and CHAIN_FIELD in html and "复盘区" in html)
+    # 缺探讨轨迹 → 收敛闸 exit 1
+    no_tt = {k: v for k, v in good.items() if k != "探讨轨迹"}
+    m2, _ = validate(no_tt)
+    tt_gate = "探讨轨迹" in m2
+    # 跳过声明两态
+    skip_ok = dict(good); skip_ok["探讨轨迹"] = "用户跳过探讨：原因=直接要结论；用户原话「直接给结论，别问了」"
+    skip_bad = dict(good); skip_bad["探讨轨迹"] = "用户跳过探讨"
+    sk_ok = not validate(skip_ok)[1]
+    sk_bad = bool(validate(skip_bad)[1])
+    # 归位缺
+    no_gy = {k: v for k, v in good.items() if k != "归位"}
+    gy_bad = "归位" in validate(no_gy)[0]
+    # 质量下限（自 check_dr 移入的回归防线）
+    straw = dict(good); straw["反方意见"] = "如果可能市场不好吧"
+    straw_caught = any("稻草人" in x for x in validate(straw)[1])
+    noctrl = dict(good); noctrl["选项"] = "砍/慢慢砍"
+    ctrl_caught = any("不做/维持现状" in x for x in validate(noctrl)[1])
+    decided = dict(good); decided["状态"] = "已定"
+    dec_caught = any("用户拍板" in x for x in validate(decided)[1])
+    # 渲染：关键内容点 7/7 grep（信息守恒，终稿 §6.1）
+    html = render_html(good)
+    points7 = [
+        all(f in html for f in FIELDS),
+        "反方" in html and "若为渠道入场券则砍错" in html,
+        all(d in html for d, _ in RISK_DIMS),
+        "假设·待验证" in html,
+        "探讨轨迹" in html and "初步版建议直接砍" in html,
+        "归位" in html and "删×产品组合" in html,
+        "齐性自检" in html,
+    ]
+    pts7 = sum(points7)
+    gauge_ok = "70%" in html and "中高档" in html
+    btag_ok = "跨部门确认" not in html  # S2 无 B 类标注
+    s5 = dict(good); s5["问题"] = "示例占位：新品上市先铺哪（场景S5）"; s5["归位"] = "增×渠道/上市 → S5 ｜ 归位成功 ｜ 重合度高 ｜ 可逆性=🔴"
+    btag5 = "最终上市决策需跨部门确认" in render_html(s5)
+    # 双主题 + 回退开关 + 紧凑档
+    light_html = render_html(good, {"dr_theme": "light"})
+    theme_ok = "--bg:#fcfcfa" in light_html and "data-theme=\"light\"" in light_html
+    legacy_html = render_html(good, {"dr_theme_legacy": True})
+    legacy_ok = "PM-STRATEGIST · DECISION RECORD" in legacy_html and "探讨轨迹" in legacy_html
     fast = dict(good); fast["状态"] = "草案·快轨"
-    fast_ok = "badge fast" in render_html(fast)
+    compact_ok = "<svg" not in render_html(fast)
+    # v4.4.1 盲审B-2/B-4 回归：9字段必填 + 齐性自检实况打勾 + 快轨互证 + 🔴原话引用 + 已定须有复盘日期
+    minimal = {k: good[k] for k in ("问题", "选项", "决定", "反方意见", "探讨轨迹", "归位")}
+    min_missing = validate(minimal)[0]
+    nine_gate = all(f in min_missing for f in ("依据", "风险", "假设清单", "复盘日期", "状态"))
+    hollow = render_html({k: good[k] for k in ("问题", "选项", "决定", "探讨轨迹", "归位")})
+    audit_honest = "依据 ✗缺" in hollow and "复盘日期 ✗缺" in hollow and "风险 ✗缺" in hollow
+    fake_fast = dict(good); fake_fast["探讨轨迹"] = "用户跳过探讨：原因=直接要结论（本会话为快轨）"; fake_fast["状态"] = "草案"
+    fake_fast_caught = bool(validate(fake_fast)[1])
+    legit_fast = dict(good); legit_fast["探讨轨迹"] = "用户跳过探讨：原因=快轨"
+    legit_fast["状态"] = "草案·快轨"; legit_fast["归位"] = "改×详情页文案 → S1 ｜ 归位成功 ｜ 单文案小流量 ｜ 可逆性=🟢"
+    legit_fast_ok = not validate(legit_fast)[1]
+    noquote = dict(good); noquote["探讨轨迹"] = "初步版出过，用户反驳过，结论更新为砍"
+    rev_caught = any("原话" in x for x in validate(noquote)[1])
+    d6 = dict(good); d6["状态"] = "已定"; d6["复盘日期"] = "【待补充】YYYY-MM-DD"
+    d6_caught = any("复盘日期" in x for x in validate(d6)[1])
+    # 落盘演练
     tmp = tempfile.mkdtemp(prefix="drtest_")
     pth = os.path.join(tmp, "DR-test.html")
-    open(pth, "w", encoding="utf-8").write(render_html(good))
-    save_ok = os.path.isfile(pth) and os.path.getsize(pth) > 500
-    badst = dict(good); badst["状态"] = "搞定"
-    st_caught = bool(validate(badst)[1])
-    all_ok = all([ok, caught, chain_ok, chain_caught, html_ok, fast_ok, save_ok, st_caught])
-    print("self: 齐全%s 缺项拦截%s 决策链%s/%s HTML单文件%s 快轨橙标%s 落盘演练%s 非法状态拦截%s" % (
-        "✓" if ok else "✗", "✓" if caught else "✗", "✓" if chain_ok else "✗", "✓" if chain_caught else "✗",
-        "✓" if html_ok else "✗", "✓" if fast_ok else "✗", "✓" if save_ok else "✗", "✓" if st_caught else "✗"))
+    open(pth, "w", encoding="utf-8").write(html)
+    save_ok = os.path.isfile(pth) and os.path.getsize(pth) > 2000
+    all_ok = all([ok, tt_gate, sk_ok, sk_bad, gy_bad, straw_caught, ctrl_caught, dec_caught,
+                  pts7 == 7, gauge_ok, btag_ok, btag5, theme_ok, legacy_ok, compact_ok, save_ok,
+                  nine_gate, audit_honest, fake_fast_caught, legit_fast_ok, rev_caught, d6_caught])
+    print("self: 收敛闸+9字段+两段 %s（缺探讨轨迹拦%s 跳过声明合法%s/缺证据拦%s 归位缺拦%s）质量下限（稻草人%s 无对照%s 已定无拍板%s）"
+          "渲染（关键内容点 %d/7 仪表%s B类标注 S2无/S5有%s 双主题%s 回退%s 紧凑档%s 落盘%s）"
+          "v4.4.1回归（9字段全必填%s 自检实况打勾%s 假快轨拦%s 真快轨过%s 🔴无原话拦%s 已定缺复盘%s）" % (
+              "✓" if ok else "✗", "✓" if tt_gate else "✗", "✓" if sk_ok else "✗", "✓" if sk_bad else "✗",
+              "✓" if gy_bad else "✗", "✓" if straw_caught else "✗", "✓" if ctrl_caught else "✗", "✓" if dec_caught else "✗",
+              pts7, "✓" if gauge_ok else "✗", "✓" if (btag_ok and btag5) else "✗",
+              "✓" if theme_ok else "✗", "✓" if legacy_ok else "✗", "✓" if compact_ok else "✗", "✓" if save_ok else "✗",
+              "✓" if nine_gate else "✗", "✓" if audit_honest else "✗", "✓" if fake_fast_caught else "✗",
+              "✓" if legit_fast_ok else "✗", "✓" if rev_caught else "✗", "✓" if d6_caught else "✗"))
     return all_ok
 
 
 def main():
-    ap = argparse.ArgumentParser(description="pm-strategist 决策记录 DR9+决策链：校验 / 自包含HTML单文件落盘（默认 ./决策记录/，首次问一次）")
+    ap = argparse.ArgumentParser(
+        description="pm-strategist 决策档案 DR：收敛闸+9字段+探讨轨迹/归位校验、v0.7 双主题 HTML 落盘（DR 校验唯一入口；默认 ./决策记录/，首次问一次）")
     ap.add_argument("input", nargs="?", help="要点文件（key: value 或 JSON），或 - 读 stdin")
-    ap.add_argument("--template", action="store_true", help="打印文本模板（含可选字段说明）")
+    ap.add_argument("--template", action="store_true", help="打印文本模板（9字段+探讨轨迹+归位+渲染可选键）")
     ap.add_argument("--out", dest="out_dir", help="落盘目录（默认 ./决策记录；可用 PM_STRATEGIST_DR_DIR 覆盖）")
     ap.add_argument("--slug", help="文件名 slug（默认取问题字段清洗）")
     ap.add_argument("--stdout", action="store_true", help="HTML 打到 stdout，不落盘")
@@ -274,10 +911,13 @@ def main():
     missing, problems = validate(pts)
     if missing or problems:
         print(render_text(pts))
-        print("FAIL — 必填缺：%s%s" % ("/".join(missing) if missing else "",
-              ("；" + "；".join(problems)) if problems else ""))
+        msg = ("必填缺：%s" % "/".join(missing)) if missing else ""
+        if problems:
+            msg += ("；" if msg else "") + "；".join(problems)
+        print("FAIL — %s" % msg)
         if not pts:
-            print("提示：一行一条「字段：内容」，字段名限 %s（%s 为可选）" % ("/".join(FIELDS), CHAIN_FIELD))
+            print("提示：一行一条「字段：内容」，字段名限 %s（9 字段全必填 + 探讨轨迹/归位；%s 为可选）"
+                  % ("/".join(FIELDS + SECTION_FIELDS), "/".join(OPTIONAL)))
         return 1
     html = render_html(pts)
     if a.stdout:
@@ -297,8 +937,10 @@ def main():
         path = "%s-%d.html" % (base, n)
         n += 1
     open(path, "w", encoding="utf-8").write(html)
-    print("PASS — DR 渲染成功，已落盘：%s（目录来源：%s）" % (path, src))
-    print("复盘区已内置；复盘日期到点对照 fm-04 复盘；快轨 DR 状态徽章为橙色。")
+    s = load_settings()
+    theme = "旧版回退模板" if s.get("dr_theme_legacy") else ("浅色" if s.get("dr_theme") == "light" else "暗黑横版")
+    print("PASS — DR 渲染成功，已落盘：%s（目录来源：%s；主题：%s）" % (path, src, theme))
+    print("档案含：9 字段/反方/风险六维/假设/探讨轨迹/归位；复盘日期到点对照 fm-04 复盘。")
     return 0
 
 

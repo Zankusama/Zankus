@@ -73,7 +73,8 @@ scan "无开发过程/旧版残留（死规矩/旧口令/五类框架/版本演�
 scan "无本机绝对路径（/Users、/home、个人目录名）" "/Users/|/home/|AI记忆库"
 
 # 8) 版本号一致性：以 SKILL.md frontmatter 的 version 为准，全包三段版本号不得有异
-#    （README「版本记录」表 = 显式变更史，含历史版本属正常，放行表格行；只扫正文引用）
+#    （README「版本记录」表 = 显式变更史，含历史版本属正常，放行表格行；只扫正文引用；
+#      schema 版本行豁免：身份层字段口径版本≠包版本，仅字段集/口径变化时才 bump，不随包版本联动——BLOCKED B-1 解法 C）
 CUR=$(grep -E '^version:' "$S/SKILL.md" | head -1 | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
 if [ -z "$CUR" ]; then no "SKILL.md frontmatter 读不到 version"; else
   DIFF=$(find "$S" -name "*.md" -not -path "*/.git/*" -print 2>/dev/null \
@@ -82,6 +83,7 @@ if [ -z "$CUR" ]; then no "SKILL.md frontmatter 读不到 version"; else
               sed -E '/^\|[[:space:]]*[vV]?[0-9]+\.[0-9]+\.[0-9]+/d' "$f"; \
             else cat "$f"; fi; \
           done \
+        | grep -vE 'schema[[:space:]]*版本' \
         | grep -oE "[vV]?[0-9]+\.[0-9]+\.[0-9]+" \
         | sed -E 's/^[vV]//' | grep -vE "^${CUR//./\\.}$" | sort -u)
   if [ -z "$DIFF" ]; then ok "版本号一致（全包均为 ${CUR}；README 变更史表放行）"
