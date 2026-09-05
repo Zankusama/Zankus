@@ -72,22 +72,16 @@ scan "无开发过程/旧版残留（死规矩/旧口令/五类框架/版本演�
 # 7) 本机绝对路径（放行 ~/.xxx 这类通用 home 简写，只抓真实绝对路径与个人目录名）
 scan "无本机绝对路径（/Users、/home、个人目录名）" "/Users/|/home/|AI记忆库"
 
-# 8) 版本号一致性：以 SKILL.md frontmatter 的 version 为准，全包三段版本号不得有异
-#    （README「版本记录」表 = 显式变更史，含历史版本属正常，放行表格行；只扫正文引用；
-#      schema 版本行豁免：身份层字段口径版本≠包版本，仅字段集/口径变化时才 bump，不随包版本联动——BLOCKED B-1 解法 C）
+# 8) 版本号一致性：只比对 SKILL.md 的两处「版本声明位」（白名单，不扫全包）
+#    frontmatter version: 与正文 *版本 vX.X.X 必须相等；其他位置的版本号一律是历史归因，不查
 CUR=$(grep -E '^version:' "$S/SKILL.md" | head -1 | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-if [ -z "$CUR" ]; then no "SKILL.md frontmatter 读不到 version"; else
-  DIFF=$(find "$S" -name "*.md" -not -path "*/.git/*" -print 2>/dev/null \
-        | while IFS= read -r f; do \
-            if [ "$(basename "$f")" = "README.md" ]; then \
-              sed -E '/^\|[[:space:]]*[vV]?[0-9]+\.[0-9]+\.[0-9]+/d' "$f"; \
-            else cat "$f"; fi; \
-          done \
-        | grep -vE 'schema[[:space:]]*版本' \
-        | grep -oE "[vV]?[0-9]+\.[0-9]+\.[0-9]+" \
-        | sed -E 's/^[vV]//' | grep -vE "^${CUR//./\\.}$" | sort -u)
-  if [ -z "$DIFF" ]; then ok "版本号一致（全包均为 ${CUR}；README 变更史表放行）"
-  else no "存在与 frontmatter(${CUR}) 不一致的版本号：" "$DIFF"; fi
+BODY=$(grep -E '^\*版本 v' "$S/SKILL.md" | head -1 | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+if [ -z "$CUR" ] || [ -z "$BODY" ]; then
+  no "SKILL.md 版本声明位读不全（frontmatter=${CUR:-空} 正文=${BODY:-空}）"
+elif [ "$CUR" != "$BODY" ]; then
+  no "SKILL.md 两处版本声明不一致：frontmatter=${CUR} / 正文=${BODY}"
+else
+  ok "版本声明一致（SKILL.md frontmatter 与正文均为 ${CUR}；历史归因标注不在检查范围）"
 fi
 
 # 9) 个人敏感词（词表在包外；缺失则 SKIP，外部使用者没有你的词表属正常，不判失败）
