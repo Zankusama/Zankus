@@ -21,13 +21,17 @@
   python3 "$SKILL_DIR/scripts/decision-record.py" --self
 退出码: 0=渲染成功; 1=缺必填/收敛闸/校验失败; 2=读入错误
 """
-import sys, os, re, json, argparse, datetime, tempfile
+import sys, os, re, json, argparse, datetime, tempfile, importlib
 
 DR_DATE = datetime.date.today().strftime("%Y%m%d")
 FIELDS = ["问题", "选项", "决定", "依据", "反方意见", "风险", "假设清单", "复盘日期", "状态"]
 REQUIRED = list(FIELDS)  # v4.4.1 盲审B-2：9字段全必填（名实相符，对齐 fm-02 自查点"9字段一个不缺"）
 SECTION_FIELDS = ["探讨轨迹", "归位"]  # v4.4.0：探讨轨迹=收敛闸必填；归位=只读审计段
 OPTIONAL = ["决策链", "置信度", "下一步", "落选死因", "换挡条件", "可逆性"]  # 决策链=复合决策；其余渲染增强
+# ── W-13 渲染键齐备度：台面四区→DR 的手工搬运键（缺键静默=漏进档案，须上台提示） ──
+RENDER_KEYS = [("置信度", "四区【建议】置信二极管·依据"), ("下一步", "四区【建议】下一步（你）"),
+               ("落选死因", "四区【为什么不选别的】"), ("换挡条件", "四区【换挡条件】"),
+               ("可逆性", "归位段内可逆性")]
 STATUS = ["草案", "已定", "复盘", "关闭"]
 HINTS = {
     "问题": "一句决策问题（含场景号与决策者/截止时间）",
@@ -39,7 +43,7 @@ HINTS = {
     "假设清单": "每条 ⚠️ 前缀「假设·待验证」；确无假设写「无——输入已全部确认」",
     "复盘日期": "YYYY-MM-DD",
     "状态": "草案/已定/复盘/关闭（快轨决策在状态后加「·快轨」= 橙色徽章）",
-    "探讨轨迹": "【收敛闸必填】①初步版→用户反驳（引用用户原话「…」）→结论如何更新（验证轨：用户判断→军师校准/反对→用户再驳→是否改判）②用户跳过探讨：原因=直接要结论/快轨/连续降频 + 可观测证据（用户原话引用「…」；引「快轨」须与状态字段·快轨后缀一致）。🔴不可逆决策必须至少一处用户原话引用",
+    "探讨轨迹": "【收敛闸必填·R-5 层1】必须含用户原话引用「…」。①初步版→用户反驳（引原话「…」）→结论如何更新（验证轨：用户判断→军师校准/反对→用户再驳→是否改判）②用户跳过探讨：原因=直接要结论/快轨/连续降频 ＋ 用户原话引用「…」（引「快轨」须与状态字段·快轨后缀一致）。无原话引用的叙述（「反驳过/更新过」）不算收敛证据",
     "归位": "【必填·只读】动作×对象 → 场景号 ｜ 出口 ｜ 理由一句话 ｜ 可逆性=🔴/🟡/🟢（落盘后不许事后改写）",
 }
 OPTIONAL_HINTS = {
@@ -50,7 +54,7 @@ OPTIONAL_HINTS = {
     "换挡条件": "（渲染可选：信号+阈值 → 改判方向一句话 → 换挡时间线）",
     "可逆性": "（渲染可选：🔴/🟡/🟢，也可写在归位段内 → 刊头胶囊；🟢或「·快轨」=紧凑档案）",
 }
-TEMPLATE = "# DR-%s-<slug>（日期已自动填入，编号/主题 slug 落盘时自动取自问题字段）\n" % DR_DATE + \
+TEMPLATE = "# DR-%s-<slug>（日期已自动填入；slug 默认=对象+动作（归位原语对），可 --slug 覆盖）\n" % DR_DATE + \
     "".join("- %s：%s\n" % (f, ("【待补充】" + HINTS[f])) for f in FIELDS) + \
     "".join("- %s：%s\n" % (f, ("【待补充】" + HINTS[f])) for f in SECTION_FIELDS) + \
     "".join("- %s：%s\n" % (k, v) for k, v in OPTIONAL_HINTS.items())
@@ -107,8 +111,56 @@ def parse_points(text):
     return pts
 
 
-def validate(pts):
-    """收敛闸 + 9 字段 + 质量下限。返回 (missing, problems)。"""
+def render_key_status(pts):
+    """台面四区→DR 手工搬运键的齐备度（W-13）：返回 (齐全键[], 缺失键+来源[])。
+    缺键静默=漏进档案，落盘输出须明确列出。"""
+    present, missing = [], []
+    for k, src in RENDER_KEYS:
+        v = (pts.get(k) or "").strip()
+        if v and "【待补充】" not in v:
+            present.append(k)
+        else:
+            missing.append("%s（来源=%s）" % (k, src))
+    return present, missing
+
+
+def _load_session_state(path=None):
+    """读 session_state（R-5 层3：状态断言）。返回 (state, err)；路径解析与 state-gate.py 同序：
+    --state 参数 > PM_STRATEGIST_STATE 环境变量 > <skill根>/config/session_state.json。
+    fail-closed 与 state-gate 同标：缺 schema_version / 版本不符 → 拒读——闸外手写最小 JSON
+    （如 {"phase":"S6_CONVERGED"}）不算收敛证据。"""
+    p = path or os.environ.get("PM_STRATEGIST_STATE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "session_state.json")
+    if not os.path.isfile(p):
+        return None, "session_state 不存在（%s）" % p
+    try:
+        st = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, "session_state 损坏（%s）" % e
+    if not isinstance(st, dict):
+        return None, "session_state 不是 JSON 对象"
+    v = st.get("schema_version")
+    if not v:
+        return None, "session_state 缺 schema_version（闸外伪造嫌疑）——须 state-gate.py --init 生成后逐门推进"
+    import importlib.util
+    sys.dont_write_bytecode = True  # 动态加载不落 __pycache__（保持包目录零运行时产物）
+    spec = importlib.util.spec_from_file_location(
+        "state_gate_mod", os.path.join(os.path.dirname(os.path.abspath(__file__)), "state-gate.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if v != mod.SCHEMA_VERSION:
+        return None, "session_state schema_version=%s ≠ %s（版本落后或伪造）——须 --init 重建" % (v, mod.SCHEMA_VERSION)
+    return st, None
+
+
+def validate(pts, state=None, state_err=None):
+    """收敛闸（R-5 三层断言）+ 9 字段 + 质量下限。返回 (missing, problems)。
+
+    三层断言（v5.0#5，未收敛落盘 0 起）：
+      层1 文本：探讨轨迹必须含用户原话引用「…」（反驳记录与跳过声明同标准；
+        「初步版出过、用户反驳过」这类无原话叙述不算收敛证据——关键词白名单已移除）
+      层2 证据：跳过声明须 原因=X ＋ 原话引用（或快轨与状态字段互证）
+      层3 状态：状态=草案 时 session_state.phase 必须 = S6_CONVERGED（fail-closed）"""
     def _blank(v):
         v = (v or "").strip()
         return (not v) or v.startswith("【待补充】")
@@ -123,8 +175,10 @@ def validate(pts):
             fast_ok = "快轨" in tt and "快轨" in pts.get("状态", "")
             if not (has_reason and (quoted or fast_ok)):
                 problems.append("探讨轨迹跳过声明缺可观测证据（须含 原因=X ＋ 用户原话引用「…」；引「快轨」作证据须与状态字段·快轨后缀互证）——诚实闸：自报口径、复盘可审计")
-        elif not re.search(r"反驳|初步|用户判断|校准|改判|更新|推翻", tt):
-            problems.append("探讨轨迹既非反驳记录也非跳过声明（合法形态：①初步版→用户反驳[引原话]→结论如何更新；②用户跳过探讨：原因=X＋证据）")
+        elif not quoted:
+            # R-5 层1：移除关键词白名单（「反驳|初步|更新」字面命中≠收敛证据），原话引用是唯一硬证据
+            problems.append("探讨轨迹无用户原话引用「…」（R-5 层1：初步版→用户反驳→结论更新必须引用用户原话；"
+                            "「初步版出过、用户反驳过」这类无原话叙述不算收敛证据）")
         # v4.4.1 盲审B-4：不可逆决策不允许无原话记录收敛
         if _rev_of(pts) == "🔴" and not quoted:
             problems.append("可逆性=🔴（不可逆决策）的探讨轨迹须至少一处用户原话引用「…」——不可逆决定不允许无记录收敛")
@@ -136,6 +190,18 @@ def validate(pts):
     st_base = st.split("·")[0].strip()
     if st_base and st_base not in STATUS:
         problems.append("状态非法（应为 草案/已定/复盘/关闭，可加「·快轨」后缀；当前: %s）" % st[:20])
+    # ── R-5 层3：状态断言——草案落盘须状态机已收敛（已定/复盘/关闭=终态或历史档案重渲，不查）──
+    if st_base == "草案":
+        if state_err:
+            problems.append("R-5 层3 状态断言：状态=草案但 session_state 不可读（%s）——"
+                            "草案落盘须状态机在 S6_CONVERGED；先 state-gate.py --init 逐门推进（fail-closed，不静默豁免）" % state_err)
+        elif state is None:
+            problems.append("R-5 层3 状态断言：状态=草案但未提供 session_state——"
+                            "草案落盘须状态机在 S6_CONVERGED（快轨走 S4→S6 跳过声明门，同样到 S6）")
+        elif state.get("phase") != "S6_CONVERGED":
+            problems.append("R-5 层3 状态断言：session_state.phase=%s ≠ S6_CONVERGED——"
+                            "未收敛不得落盘草案（先 state-gate.py --to S6_CONVERGED 过门；critical 补齐后强制回 S4 重出）"
+                            % state.get("phase"))
     d = pts.get("复盘日期", "")
     if d and "待补充" not in d:
         if not re.search(r"\d{4}-\d{2}-\d{2}", d):
@@ -150,6 +216,9 @@ def validate(pts):
     if opt and ("不做" not in opt and "维持现状" not in opt):
         problems.append("选项未含「不做/维持现状」（不做是每个决策的真实备选）")
     dec = pts.get("决定", "")
+    if re.search(r"选\s*项\s*[0-9①②③④⑤⑥⑦⑧⑨⑩]|选\s*[0-9]{1,2}\s*[、号）)]|其余同上", dec):
+        problems.append("M7-1 决定字段禁编号指代（「选项2/选3/其余同上」读档案的人无上文可查；"
+                        "必须完整句写明选了什么）")
     if "已定" in st and "用户拍板：" not in dec:
         problems.append("状态已定但决定字段无「用户拍板：」原文（无拍板原文不得写已定）")
     rev = (pts.get("复盘日期", "") or "").strip()
@@ -182,7 +251,7 @@ def validate(pts):
 
 
 def render_text(pts):
-    lines = ["# DR-%s-<slug>（日期由脚本自动填入，slug 取自问题字段）" % DR_DATE]
+    lines = ["# DR-%s-<slug>（日期由脚本自动填入；slug 默认=对象+动作（归位原语对），--slug 可覆盖）" % DR_DATE]
     for f in FIELDS + SECTION_FIELDS:
         v = pts.get(f, "").strip() or "【待补充】%s" % HINTS[f]
         lines.append("- %s：%s" % (f, v))
@@ -217,6 +286,25 @@ def _is_compact(pts):
     return _rev_of(pts) == "🟢"
 
 
+def _force_full(pts):
+    """M7 ②：判类（S3）与「结论是下游不可逆前提」强制全量档——可逆≠轻量（诊断本身可逆，
+    但下游动作拿它当前提时，档案信息密度不许降）。"""
+    if _scene(pts) == "S3":
+        return True
+    blob = pts.get("问题", "") + pts.get("归位", "") + pts.get("换挡条件", "")
+    return ("下游不可逆" in blob) or ("不可逆前提" in blob)
+
+
+def _default_slug(pts):
+    """M12 脚本默认值层：无 --slug 时 slug=对象+动作（归位字段原语对，
+    命名规范 DR-YYYYMMDD-<对象≤10字>-<动作≤6字>）；归位无原语对 → 退问题字段清洗截 12
+    （文件名 ≤30 字硬约束——R2 实测旧默认截 24 字产出 40+ 字文件名）。"""
+    m = re.search(r"([增删改择判])\s*[×xX]\s*([\u4e00-\u9fff]{1,10})", pts.get("归位", "") or "")
+    if m:
+        return "%s-%s" % (m.group(2)[:10], m.group(1)[:6])
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", pts.get("问题", ""))[:12] or "dr"
+
+
 def _scene(pts):
     blob = pts.get("问题", "") + pts.get("归位", "")
     m = re.search(r"S([1-5])", blob)
@@ -224,12 +312,13 @@ def _scene(pts):
 
 
 def _gauge(conf):
-    """结论卡 SVG 仪表：三档词→读数（档案仪表允许百分比，台面禁）。"""
+    """结论卡 SVG 仪表：三档词直显（高/中高/中档）。口径变更(W-03)：取消档位→百分比换算——
+    旧设计允许档案显百分比读数，机械换算(中=50%/中高=70%/高=90%)属伪造精度，改为大字显档位词；
+    弧线弧长仅作定性视觉，不标读数。非 bug 修复。"""
     m = re.search(r"(中高|高|中)", conf or "")
     if not m:
         return ""
     frac = {"高": 0.9, "中高": 0.7, "中": 0.5}[m.group(1)]
-    pct = int(frac * 100)
     ang = (180 - 180 * frac) * 3.141592653589793 / 180.0
     x, y = round(110 + 76 * __import__("math").cos(ang), 1), round(108 - 76 * __import__("math").sin(ang), 1)
     basis = ""
@@ -245,8 +334,8 @@ def _gauge(conf):
             '<text x="62" y="26" font-size="10.5" fill="#8b93a1" text-anchor="middle">中</text>'
             '<text x="158" y="26" font-size="10.5" fill="#8b93a1" text-anchor="middle">中高</text>'
             '<text x="196" y="96" font-size="10.5" fill="#8b93a1" text-anchor="middle">高</text>'
-            '<text x="110" y="85" font-size="27" fill="#e9ebf2" text-anchor="middle" class="num" font-weight="700">%d%%</text>'
-            '<text x="110" y="106" font-size="10.5" fill="#8b93a1" text-anchor="middle">置信度 · %s</text></svg>' % (x, y, pct, label)), basis
+            '<text x="110" y="85" font-size="27" fill="#e9ebf2" text-anchor="middle" class="num" font-weight="700">%s</text>'
+            '<text x="110" y="106" font-size="10.5" fill="#8b93a1" text-anchor="middle">置信度 · 三档词</text></svg>' % (x, y, label)), basis
 
 
 def _radar_and_hits(riskv):
@@ -264,7 +353,7 @@ def _radar_and_hits(riskv):
                 break
     cx, cy, R = 160.0, 125.0, 98.0
     import math
-    pts, rows, misses = [], [], []
+    pts, svg_texts, html_items, misses = [], [], [], []
     for i, (dim, color) in enumerate(RISK_DIMS):
         a = math.radians(90 - 60 * i)
         vx, vy = cx + R * math.cos(a), cy - R * math.sin(a)
@@ -276,12 +365,12 @@ def _radar_and_hits(riskv):
         strong = ' font-weight="700"' if d["lv"] else ""
         fill = color if d["lv"] else "#5b6270"
         label = dim + (" · %s" % {1: "低", 2: "中", 3: "高"}[d["lv"]] if d["lv"] else " · 未命中")
-        rows.append('<text x="%.1f" y="%.1f" font-size="11.5" fill="%s" text-anchor="%s"%s>%s</text>'
-                    % (ax, ay, fill, anchor, strong, esc(label)))
+        rows = '<text x="%.1f" y="%.1f" font-size="11.5" fill="%s" text-anchor="%s"%s>%s</text>'
+        svg_texts.append(rows % (ax, ay, fill, anchor, strong, esc(label)))
         note = re.sub(r"^(%s)\s*[：:（(]?" % dim, "", d["note"] or "")
         note = note.replace("未命中", "", 1).strip(" ：:，,。（）—") if "未命中" in (d["note"] or "") else note
         if d["lv"]:
-            rows.append('<div class="item"><span class="dot" style="--c:%s"></span><b>%s</b><span class="lv">命中 · %s</span><p>%s</p></div>'
+            html_items.append('<div class="item"><span class="dot" style="--c:%s"></span><b>%s</b><span class="lv">命中 · %s</span><p>%s</p></div>'
                         % (color, dim, {1: "低", 2: "中", 3: "高"}[d["lv"]], esc(note or "——")))
         else:
             reason = note or "风险字段未提及——复盘补一句理由"
@@ -294,10 +383,28 @@ def _radar_and_hits(riskv):
             '<line x1="160" y1="125" x2="160" y2="27" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="244.9" y2="76" stroke="rgba(255,255,255,.07)"/>'
             '<line x1="160" y1="125" x2="244.9" y2="174" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="160" y2="223" stroke="rgba(255,255,255,.07)"/>'
             '<line x1="160" y1="125" x2="75.1" y2="174" stroke="rgba(255,255,255,.07)"/><line x1="160" y1="125" x2="75.1" y2="76" stroke="rgba(255,255,255,.07)"/>')
-    svg = ('<svg viewBox="0 0 320 262" role="img" aria-label="风险雷达">%s%s%s</svg>' % (grid, polygon, "".join(rows)))
-    hitlist = '<div class="hitlist">%s%s<div class="miss">%s</div></div>' % (
-        "".join(r for r in rows if "<div" in r), "", "".join(misses))
+    svg = ('<svg viewBox="0 0 320 262" role="img" aria-label="风险雷达">%s%s%s</svg>' % (grid, polygon, "".join(svg_texts)))
+    hitlist = '<div class="hitlist">%s<div class="miss">%s</div></div>' % (
+        "".join(html_items), "".join(misses))
     return svg, hitlist
+
+
+def _shift_conds(shift):
+    parts = [x.strip() for x in re.split(r"[；;\n]", shift or "") if x.strip()]
+    if len(parts) <= 1 and "\n" in (shift or ""):
+        parts = [x.strip() for x in shift.splitlines() if x.strip()]
+    return parts
+
+
+def _shift_full(shift):
+    """换挡条件完整 HTML 列表（W-04：SVG 只留短标签，完整条件拆 HTML——不挤压不截断）。"""
+    conds = _shift_conds(shift)
+    if not conds:
+        return ""
+    if len(conds) == 1:
+        return '<div class="shiftfull"><b>换挡条件：</b>%s</div>' % esc(conds[0])
+    lis = "".join('<li>%s</li>' % esc(c) for c in conds)
+    return '<div class="shiftfull"><b>换挡条件 · 完整清单：</b><ol>%s</ol></div>' % lis
 
 
 def _shift_svg(pts):
@@ -305,20 +412,20 @@ def _shift_svg(pts):
     review = pts.get("复盘日期", "") or "待填"
     if not shift:
         return ('<div class="capnote">复盘日 %s——对照「当时前提 vs 实际结果」（fm-04）。</div>' % esc(review))
-    short = shift if len(shift) <= 44 else shift[:44] + "…"
     return ('<svg width="100%%" viewBox="0 0 720 106" role="img" aria-label="换挡时间线">'
             '<line x1="30" y1="54" x2="700" y2="54" stroke="rgba(255,255,255,.14)" stroke-width="1.5"/>'
             '<circle cx="70" cy="54" r="5" fill="#e9ebf2"/>'
             '<text x="70" y="78" font-size="11.5" fill="#c0c6d2" text-anchor="middle" font-weight="600">%s 决定生效</text>'
             '<rect x="294" y="48" width="12" height="12" rx="2.5" transform="rotate(45 300 54)" fill="#6b7cff"/>'
             '<text x="300" y="36" font-size="11.5" fill="#c0c6d2" text-anchor="middle" font-weight="600">监测</text>'
-            '<text x="300" y="15" font-size="11" fill="#8b9bff" text-anchor="middle" font-weight="600">%s</text>'
+            '<text x="300" y="15" font-size="11" fill="#8b9bff" text-anchor="middle" font-weight="600">触发条件见下方清单</text>'
             '<text x="300" y="97" font-size="11" fill="#e9ebf2" text-anchor="middle" font-weight="600">触发 → 按换挡条件改判</text>'
             '<circle cx="560" cy="54" r="7" fill="none" stroke="#6b7cff" stroke-width="2.2"/>'
             '<text x="560" y="36" font-size="11.5" fill="#8b9bff" text-anchor="middle" font-weight="700">复盘 %s</text>'
             '<text x="560" y="78" font-size="10.5" fill="#8b93a1" text-anchor="middle">前提 vs 实际结果</text></svg>'
-            '<div class="capnote">信号可证伪：口径变化＝提前复盘。%s</div>'
-            % (esc(datetime.date.today().strftime("%m-%d")), esc(short), esc(review), esc("")))
+            '<div class="capnote">信号可证伪：口径变化＝提前复盘。</div>'
+            '%s'
+            % (esc(datetime.date.today().strftime("%m-%d")), esc(review), _shift_full(shift)))
 
 
 def _bars(dead, allow_bars=True):
@@ -334,6 +441,73 @@ def _bars(dead, allow_bars=True):
         else:
             rows.append('<div class="drow"><b>%s</b>：%s</div>' % (esc(name), esc(desc)))
     return "".join(rows)
+
+
+def _gauge_lite(conf):
+    """紧凑档轻量置信度条（M7 ③ 降级不全删：width 150<190 + 置信度文本 + 轻量标记 class="lite"）。
+    W-03 口径变更：取消百分比读数，条长仅作定性视觉，不标数字。"""
+    m = re.search(r"(中高|高|中)", conf or "")
+    if not m:
+        return ""
+    frac = {"高": 0.9, "中高": 0.7, "中": 0.5}[m.group(1)]
+    w = int(146 * frac)
+    return ('<svg class="lite" width="150" height="36" viewBox="0 0 150 36" role="img" aria-label="置信度（轻量）">'
+            '<rect x="0" y="6" width="150" height="10" rx="5" fill="var(--track)"/>'
+            '<rect x="0" y="6" width="%d" height="10" rx="5" fill="var(--indigo)"/>'
+            '<text x="0" y="32" font-size="10.5" fill="var(--muted)">置信度 · %s档</text></svg>'
+            % (w, m.group(1)))
+
+
+def _radar_lite(riskv):
+    """紧凑档轻量风险雷达（M7 ③：小尺寸网格多边形+命中色块，零动画属性）。"""
+    segs = [x.strip() for x in re.split(r"[；;\n]", riskv or "") if x.strip()]
+    info = {dim: 0 for dim, _ in RISK_DIMS}
+    for seg in segs:
+        for dim, _ in RISK_DIMS:
+            if (seg.startswith(dim) or any(k in seg[:14] for k in DIM_KWS[dim])) and not info[dim]:
+                if "未命中" not in seg:
+                    mlv = re.search(r"(高|中|低)", seg.replace("高风险", ""))
+                    info[dim] = {"高": 3, "中": 2, "低": 1}.get(mlv.group(1), 2) if mlv else 2
+                break
+    import math
+    cx, cy, R = 66.0, 62.0, 46.0
+    poly_pts = []
+    for i, (dim, _c) in enumerate(RISK_DIMS):
+        a = math.radians(90 - 60 * i)
+        vx, vy = cx + R * math.cos(a), cy - R * math.sin(a)
+        f = {0: 0.0, 1: 0.33, 2: 0.66, 3: 1.0}[info[dim]]
+        poly_pts.append("%.1f,%.1f" % (cx + f * (vx - cx), cy + f * (vy - cy)))
+    grid = ('<polygon points="66,16 105.8,39 105.8,85 66,108 26.2,85 26.2,39" fill="none" stroke="var(--grid)" stroke-width="1"/>'
+            '<polygon points="66,39 85.9,50.5 85.9,73.5 66,85 46.1,73.5 46.1,50.5" fill="none" stroke="var(--grid)" stroke-width="1"/>')
+    poly = '<polygon points="%s" fill="var(--indigo)" opacity="0.16" stroke="var(--indigo)" stroke-width="1.2"/>' % " ".join(poly_pts)
+    hits = []
+    for i, (dim, color) in enumerate(RISK_DIMS):
+        if info[dim]:
+            a = math.radians(90 - 60 * i)
+            hx, hy = cx + (R + 13) * math.cos(a), cy - (R + 13) * math.sin(a)
+            hits.append('<rect x="%.1f" y="%.1f" width="7" height="7" rx="1.5" fill="%s"/>'
+                        '<text x="%.1f" y="%.1f" font-size="10.5" fill="var(--body)" text-anchor="middle">%s</text>'
+                        % (hx - 3.5, hy - 3.5, color, hx, hy + 18, dim))
+    return ('<svg class="lite" width="132" height="124" viewBox="0 0 132 124" role="img" aria-label="风险雷达（轻量）">%s%s%s</svg>'
+            % (grid, poly, "".join(hits)))
+
+
+def _shift_svg_lite(pts):
+    """紧凑档单行换挡时间线（M7 ③：viewBox 高度 48 ≤ 原版 106 的 50%，含复盘日节点）。
+    W-04 同拆：SVG 只留短标签，完整条件拆 HTML 列表。"""
+    shift = (pts.get("换挡条件", "") or "").strip()
+    review = pts.get("复盘日期", "") or "待填"
+    return ('<svg class="lite" width="100%%" viewBox="0 0 720 48" role="img" aria-label="换挡时间线（单行）">'
+            '<line x1="20" y1="26" x2="700" y2="26" stroke="var(--line)" stroke-width="1.5"/>'
+            '<circle cx="56" cy="26" r="4" fill="var(--ink)"/>'
+            '<text x="56" y="13" font-size="10.5" fill="var(--body)" text-anchor="middle">决定生效</text>'
+            '<rect x="356" y="22" width="8" height="8" rx="2" transform="rotate(45 360 26)" fill="var(--indigo)"/>'
+            '<text x="360" y="13" font-size="10.5" fill="var(--indigo2)" text-anchor="middle">监测 · 条件见下方清单</text>'
+            '<circle cx="648" cy="26" r="5" fill="none" stroke="var(--indigo)" stroke-width="2"/>'
+            '<text x="648" y="13" font-size="10.5" fill="var(--indigo2)" text-anchor="middle" font-weight="700">复盘日 %s</text></svg>'
+            '<div class="capnote">信号可证伪：口径变化＝提前复盘（紧凑单行版）。</div>'
+            '%s'
+            % (esc(review), _shift_full(shift)))
 
 
 def _steps(v):
@@ -567,7 +741,7 @@ _HTML_V07 = """<!DOCTYPE html>
       </section>
       <section id="s08">
         <div class="h"><span class="no">08</span><span class="t">归位 / 假设与依据</span><span class="rule"></span></div>
-        <div class="assump">归位（只读）：__GUIWEI__</div>
+        <div class="assump">本次判断的类型：__GUIWEI__</div>
         __ASSUMP__
         <div class="basisline">依据（档案层）：__FMREF__ ｜ 决策链：__CHAIN__</div>
         <div class="audit" style="margin-top:16px"><b>齐性自检</b> —— __AUDIT__</div>
@@ -586,7 +760,7 @@ _HTML_LEGACY = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__ · 决策记录（DR）</title>
+<title>__TITLE__ · 决策记录</title>
 <style>
   :root{--ink:#1b1b1b;--muted:#807a70;--line:#e9e4da;--accent:#8a6d3b;--bg:#fbfaf7}
   *{box-sizing:border-box}
@@ -688,32 +862,33 @@ def render_html(pts, settings=None):
     rev = _rev_of(pts)
     pill = {("🔴"): "不可逆 · 退不回", "🟡": "拿不准 · 按退不回对待", "🟢": "可逆 · 随时可改"}.get(rev, "决策档案")
     conf = pts.get("置信度", "") or ""
-    compact = _is_compact(pts)
+    compact = _is_compact(pts) and not _force_full(pts)
     if compact:
-        gauge = '<div class="basis">置信度：%s（紧凑档案：快轨/🟢轻决策）</div>' % (esc(conf) if conf else "未标注")
+        # M7 ③：紧凑档可视化轻量降级（原全删=自废最值钱的设计；可逆≠轻量见 _force_full）
+        gauge = _gauge_lite(conf) or '<div class="basis">置信度未标注（台面三档词：高/中高/中）</div>'
         basis = ""
     else:
         gauge, basis = (("", "") if not conf else _gauge(conf))
         if not gauge:
             gauge = '<div class="basis">置信度未标注（台面三档词：高/中高/中）</div>'
     rec = pts.get("决定", "") or "【待补充】"
-    rec = re.sub(r"^用户拍板：", "", rec)
+    rec = re.sub(r"^(?:用户)?拍板\s*[：:]\s*", "", rec)
+    rec = rec.strip("『』「」“‘”’\"'<>（）() \t")
+    rec = re.sub(r"^拍板[。，,；;：: ]*", "", rec)
     next_raw = (pts.get("下一步", "") or "").strip()
     next_box = ('<div class="next"><b>下一步（你）：</b>%s</div>' % esc(next_raw)) if next_raw else ""
     why_items = [x.strip() for x in re.split(r"[；;\n]", pts.get("依据", "") or "") if x.strip()]
     why = "".join('<div class="why"><div class="no">%d</div><div>%s</div></div>' % (i, esc(t))
                   for i, t in enumerate(why_items, 1)) or '<div class="why"><div class="no">1</div><div>（依据见存档区）</div></div>'
-    dead = _bars(pts.get("落选死因", ""), allow_bars=not compact)
+    dead = _bars(pts.get("落选死因", ""))  # M7 ③：紧凑档对比条不再禁用（轻量≠删减）
     if not dead:
         dead = "".join('<div class="drow"><b>选项</b>：%s</div>' % esc(x.strip())
                        for x in re.split(r"[／/；;]", pts.get("选项", "")) if x.strip()) or \
                '<div class="drow">落选死因未填（渲染可选键：落选死因=选项名＝死于…）</div>'
     if compact:
-        shift_text = (pts.get("换挡条件", "") or "").strip()
-        shift = '<div class="capnote">%s复盘日 %s——对照「当时前提 vs 实际结果」（fm-04）。</div>' % (
-            (esc(shift_text) + "；") if shift_text else "", esc(pts.get("复盘日期", "") or "待填"))
+        shift = _shift_svg_lite(pts)
         _, hitlist = _radar_and_hits(pts.get("风险", ""))
-        risk = hitlist
+        risk = _radar_lite(pts.get("风险", "")) + hitlist
     else:
         shift = _shift_svg(pts)
         rsvg, hitlist = _radar_and_hits(pts.get("风险", ""))
@@ -739,8 +914,6 @@ def render_html(pts, settings=None):
     ledger = "".join("<div>· %s：%s</div>" % (f, esc((pts.get(f, "") or "").strip() or "【待补充】"))
                      for f in FIELDS)
     title = pts.get("问题", "").strip() or "DR-%s" % DR_DATE
-    if len(title) > 46:
-        title = title[:46] + "…"
     html = (_HTML_V07
             .replace("__THEME__", "light" if theme == "light" else "dark")
             .replace("__DRID__", "DR-%s" % DR_DATE)
@@ -775,7 +948,7 @@ def _render_legacy(pts):
     bcls = {"已定": "ok", "复盘": "info", "关闭": "off"}.get(st_base, "draft")
     badges = '<span class="badge %s">状态：%s</span>' % (bcls, esc(st))
     if "快轨" in st:
-        badges += '<span class="badge fast">快轨（可逆且低影响 · 四件套流程）</span>'
+        badges += '<span class="badge fast">快轨 · 低风险轻决策</span>'
     review = pts.get("复盘日期", "").strip()
     badges += '<span class="badge">复盘日期：%s</span>' % (esc(review) if review else "待填")
     rows = []
@@ -785,8 +958,6 @@ def _render_legacy(pts):
     if pts.get("决策链", "").strip():
         rows.append("<tr><th>决策链</th><td>%s</td></tr>" % esc(pts["决策链"].strip()))
     title = pts.get("问题", "").strip() or "DR-%s" % DR_DATE
-    if len(title) > 46:
-        title = title[:46] + "…"
     return (_HTML_LEGACY
             .replace("__TITLE__", esc(title))
             .replace("__DATEFULL__", datetime.date.today().isoformat())
@@ -805,25 +976,26 @@ def self_test():
             "下一步": "本周内确认渠道合约有无条码数门槛",
             "落选死因": "轻量化改造＝死于换线成本回收期超出预算窗；维持现状＝代价是每月倒贴仓储与陈列（评分=32）",
             "换挡条件": "若大促动销低于品类均值八成 → 改判留线观察"}
-    m1, p1 = validate(good)
+    GS = {"schema_version": "5.0.0", "phase": "S6_CONVERGED"}  # R-5 层3 fixture：已收敛态（schema 须与 state-gate 一致）
+    m1, p1 = validate(good, state=GS)
     ok = not m1 and not p1
     # 缺探讨轨迹 → 收敛闸 exit 1
     no_tt = {k: v for k, v in good.items() if k != "探讨轨迹"}
-    m2, _ = validate(no_tt)
+    m2, _ = validate(no_tt, state=GS)
     tt_gate = "探讨轨迹" in m2
     # 跳过声明两态
     skip_ok = dict(good); skip_ok["探讨轨迹"] = "用户跳过探讨：原因=直接要结论；用户原话「直接给结论，别问了」"
     skip_bad = dict(good); skip_bad["探讨轨迹"] = "用户跳过探讨"
-    sk_ok = not validate(skip_ok)[1]
-    sk_bad = bool(validate(skip_bad)[1])
+    sk_ok = not validate(skip_ok, state=GS)[1]
+    sk_bad = bool(validate(skip_bad, state=GS)[1])
     # 归位缺
     no_gy = {k: v for k, v in good.items() if k != "归位"}
-    gy_bad = "归位" in validate(no_gy)[0]
+    gy_bad = "归位" in validate(no_gy, state=GS)[0]
     # 质量下限（自 check_dr 移入的回归防线）
     straw = dict(good); straw["反方意见"] = "如果可能市场不好吧"
-    straw_caught = any("稻草人" in x for x in validate(straw)[1])
+    straw_caught = any("稻草人" in x for x in validate(straw, state=GS)[1])
     noctrl = dict(good); noctrl["选项"] = "砍/慢慢砍"
-    ctrl_caught = any("不做/维持现状" in x for x in validate(noctrl)[1])
+    ctrl_caught = any("不做/维持现状" in x for x in validate(noctrl, state=GS)[1])
     decided = dict(good); decided["状态"] = "已定"
     dec_caught = any("用户拍板" in x for x in validate(decided)[1])
     # 渲染：关键内容点 7/7 grep（信息守恒，终稿 §6.1）
@@ -838,7 +1010,7 @@ def self_test():
         "齐性自检" in html,
     ]
     pts7 = sum(points7)
-    gauge_ok = "70%" in html and "中高档" in html
+    gauge_ok = ("70%" not in html) and ("90%" not in html) and "中高档" in html and "三档词" in html  # W-03 口径变更：无机械换算读数，仅档位词
     btag_ok = "跨部门确认" not in html  # S2 无 B 类标注
     s5 = dict(good); s5["问题"] = "示例占位：新品上市先铺哪（场景S5）"; s5["归位"] = "增×渠道/上市 → S5 ｜ 归位成功 ｜ 重合度高 ｜ 可逆性=🔴"
     btag5 = "最终上市决策需跨部门确认" in render_html(s5)
@@ -848,7 +1020,39 @@ def self_test():
     legacy_html = render_html(good, {"dr_theme_legacy": True})
     legacy_ok = "PM-STRATEGIST · DECISION RECORD" in legacy_html and "探讨轨迹" in legacy_html
     fast = dict(good); fast["状态"] = "草案·快轨"
-    compact_ok = "<svg" not in render_html(fast)
+    fast_html = render_html(fast)
+    # M7 ③ L851 断言反转：紧凑档含 ≥3 个 svg 且带轻量标记 class="lite"（原「SVG 全删」废止——可视化不自废）
+    lite_n = fast_html.count('class="lite"')
+    compact_ok = fast_html.count("<svg") >= 3 and lite_n >= 3
+    # M7 测试设计①轻量仪表：含 svg + 置信度文本 + width<190
+    mg = re.search(r'<svg class="lite"[^>]*width="(\d+)"[^>]*aria-label="置信度', fast_html)
+    m7_gauge = bool(mg) and int(mg.group(1)) < 190 and "置信度" in fast_html
+    # M7 测试设计②轻量雷达：网格多边形 + ≥1 命中色块 + 零动画属性
+    r_lite = re.search(r'<svg[^>]*风险雷达（轻量）[^>]*>.*?</svg>', fast_html, re.S)
+    m7_radar = bool(r_lite) and "<polygon" in r_lite.group(0) and \
+        bool(re.search(r'<rect [^>]*fill="#\w+"', r_lite.group(0))) and "animate" not in r_lite.group(0)
+    # M7 测试设计③轻量时间线：复盘日节点 + viewBox 高 ≤ 原版 50%（106/2=53）
+    mt = re.search(r'<svg class="lite"[^>]*viewBox="0 0 720 (\d+)"', fast_html)
+    m7_shift = ("复盘日" in fast_html) and bool(mt) and int(mt.group(1)) <= 53
+    # M7 测试设计④对比条回归：紧凑档渲染含条形元素
+    m7_bars = 'class="dbar"' in fast_html
+    # M7 测试设计⑥双主题：两主题紧凑档都含轻量件
+    fast_light = render_html(fast, {"dr_theme": "light"})
+    m7_theme = fast_light.count('class="lite"') >= 3 and 'data-theme="light"' in fast_light
+    # M7 ②：判类（S3）+ 快轨 → 强制全量档（0 轻量件、全量雷达在场）
+    s3_fast = dict(fast)
+    s3_fast["问题"] = "示例占位：这个品卖不动怎么办（场景S3）"
+    s3_fast["归位"] = "判×现有单品 → S3 ｜ 归位成功 ｜ 诊断不改东西但下游拿它当前提 ｜ 可逆性=🟢"
+    s3_html = render_html(s3_fast)
+    m7_force_full = s3_html.count('class="lite"') == 0 and 'aria-label="风险雷达"' in s3_html
+    # M7 ①：决定字段编号指代必拦
+    numbered = dict(good); numbered["决定"] = "选选项2，其余同上"
+    m7_num_caught = any("编号指代" in x for x in validate(numbered, state=GS)[1])
+    # M12：无 --slug 默认名=对象+动作（≤30 字）；归位缺失退问题字段截 12
+    slug1 = _default_slug(good)
+    m12_ok = slug1 == "产品组合-删" and len("DR-%s-%s" % (DR_DATE, slug1)) <= 30
+    slug_fb = _default_slug({"问题": "晚安蒸汽眼罩上市近半年月销约2000盒内部目标月销怎么办"})
+    m12_fb = len(slug_fb) <= 12 and len("DR-%s-%s" % (DR_DATE, slug_fb)) <= 30
     # v4.4.1 盲审B-2/B-4 回归：9字段必填 + 齐性自检实况打勾 + 快轨互证 + 🔴原话引用 + 已定须有复盘日期
     minimal = {k: good[k] for k in ("问题", "选项", "决定", "反方意见", "探讨轨迹", "归位")}
     min_missing = validate(minimal)[0]
@@ -856,12 +1060,24 @@ def self_test():
     hollow = render_html({k: good[k] for k in ("问题", "选项", "决定", "探讨轨迹", "归位")})
     audit_honest = "依据 ✗缺" in hollow and "复盘日期 ✗缺" in hollow and "风险 ✗缺" in hollow
     fake_fast = dict(good); fake_fast["探讨轨迹"] = "用户跳过探讨：原因=直接要结论（本会话为快轨）"; fake_fast["状态"] = "草案"
-    fake_fast_caught = bool(validate(fake_fast)[1])
+    fake_fast_caught = bool(validate(fake_fast, state=GS)[1])
     legit_fast = dict(good); legit_fast["探讨轨迹"] = "用户跳过探讨：原因=快轨"
     legit_fast["状态"] = "草案·快轨"; legit_fast["归位"] = "改×详情页文案 → S1 ｜ 归位成功 ｜ 单文案小流量 ｜ 可逆性=🟢"
-    legit_fast_ok = not validate(legit_fast)[1]
+    legit_fast_ok = not validate(legit_fast, state=GS)[1]
     noquote = dict(good); noquote["探讨轨迹"] = "初步版出过，用户反驳过，结论更新为砍"
-    rev_caught = any("原话" in x for x in validate(noquote)[1])
+    rev_caught = any("原话" in x for x in validate(noquote, state=GS)[1])
+    # R-5 层1 回归：🟢 可逆 + 无原话同样拦（白名单移除后「反驳过」字面叙述不算证据）
+    nq_green = dict(noquote); nq_green["归位"] = "改×详情页文案 → S1 ｜ 归位成功 ｜ 单文案小流量 ｜ 可逆性=🟢"
+    l1_caught = any("R-5 层1" in x for x in validate(nq_green, state=GS)[1])
+    # R-5 层3 回归：草案落盘的状态断言（fail-closed）
+    l3_nostate = bool(validate(good)[1])                       # 无 state → 拦
+    l3_err = bool(validate(good, state=None, state_err="session_state 不存在（/x）")[1])  # state 不可读 → 拦
+    l3_phase = bool(validate(good, state={"phase": "S4_DRAFT"})[1])                     # 未收敛 → 拦
+    l3_msg = any("S6_CONVERGED" in x for x in validate(good, state={"phase": "S4_DRAFT"})[1])
+    # 已定/复盘/关闭为终态或历史档案重渲 → 不查 state（向后兼容；样本须带拍板原文过已定质量闸）
+    decided_full = dict(good); decided_full["状态"] = "已定"
+    decided_full["决定"] = "用户拍板：先收缩后观察"
+    decided_nostate_ok = not validate(decided_full)[1]
     d6 = dict(good); d6["状态"] = "已定"; d6["复盘日期"] = "【待补充】YYYY-MM-DD"
     d6_caught = any("复盘日期" in x for x in validate(d6)[1])
     # 落盘演练
@@ -869,18 +1085,72 @@ def self_test():
     pth = os.path.join(tmp, "DR-test.html")
     open(pth, "w", encoding="utf-8").write(html)
     save_ok = os.path.isfile(pth) and os.path.getsize(pth) > 2000
+    # ---- 批次1 渲染断言（W-01/W-05/W-06 + G-3）----
+    _HP = importlib.import_module("html.parser")  # 避免 import html.parser 遮蔽下方 html 字符串变量
+    class StrictParser(_HP.HTMLParser):
+        VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+                "param", "source", "track", "wbr"}
+        def __init__(self):
+            super().__init__(); self.stack = []; self.errs = []
+        def handle_starttag(self, tag, attrs):
+            if tag not in self.VOID:
+                self.stack.append(tag)
+        def handle_endtag(self, tag):
+            if tag in self.VOID:
+                return
+            if self.stack and self.stack[-1] == tag:
+                self.stack.pop()
+            elif tag in self.stack:
+                while self.stack and self.stack[-1] != tag:
+                    self.errs.append("mismatch closing " + tag + " @ " + self.stack[-1]); self.stack.pop()
+                if self.stack:
+                    self.stack.pop()
+            else:
+                self.errs.append("unexpected closing " + tag)
+    def valid_html(h):
+        p = StrictParser(); p.feed(h); p.close()
+        return (not p.errs) and (not p.stack)
+    # W-01：任意 <svg>…</svg> 内无 <div（非法 DOM 直渲）
+    def svg_blocks(h):
+        return re.findall(r"<svg.*?</svg>", h, re.S)
+    def div_in_svg_count(h):
+        return sum(b.count("<div") for b in svg_blocks(h))
+    w01_full = div_in_svg_count(html) == 0
+    w01_compact = div_in_svg_count(fast_html) == 0
+    w01_ok = w01_full and w01_compact and html.count('class="item"') >= 1
+    # W-05：建议区实质决定无拍板原话引号残留（『…』「…」）
+    rec_m = re.search(r'class="rec">建议：<em>(.*?)</em>', html, re.S)
+    w05_ok = bool(rec_m) and ("『" not in rec_m.group(1)) and ("「" not in rec_m.group(1))
+    # G-3：用户文案黑话清零（不含：归位（只读）/四件套流程/决策记录（DR））
+    g3_ok = ("归位（只读）" not in html) and ("四件套流程" not in html) and ("决策记录（DR）" not in html)
+    # W-06：HTML 严解析（标准库 html.parser 零依赖）+ div-in-svg 坏样本必拦
+    w06_bad_fixture = _radar_and_hits("竞争高风险；法规未命中；组织未命中；财务未命中；市场未命中；供应链未命中")[0]
+    w06_ok = valid_html(html) and valid_html(legacy_html) and (div_in_svg_count(w06_bad_fixture) == 0)
     all_ok = all([ok, tt_gate, sk_ok, sk_bad, gy_bad, straw_caught, ctrl_caught, dec_caught,
                   pts7 == 7, gauge_ok, btag_ok, btag5, theme_ok, legacy_ok, compact_ok, save_ok,
-                  nine_gate, audit_honest, fake_fast_caught, legit_fast_ok, rev_caught, d6_caught])
+                  nine_gate, audit_honest, fake_fast_caught, legit_fast_ok, rev_caught, d6_caught,
+                  l1_caught, l3_nostate, l3_err, l3_phase, l3_msg, decided_nostate_ok,
+                  m7_gauge, m7_radar, m7_shift, m7_bars, m7_theme, m7_force_full, m7_num_caught,
+                  m12_ok, m12_fb, w01_ok, w05_ok, g3_ok, w06_ok])
     print("self: 收敛闸+9字段+两段 %s（缺探讨轨迹拦%s 跳过声明合法%s/缺证据拦%s 归位缺拦%s）质量下限（稻草人%s 无对照%s 已定无拍板%s）"
           "渲染（关键内容点 %d/7 仪表%s B类标注 S2无/S5有%s 双主题%s 回退%s 紧凑档%s 落盘%s）"
-          "v4.4.1回归（9字段全必填%s 自检实况打勾%s 假快轨拦%s 真快轨过%s 🔴无原话拦%s 已定缺复盘%s）" % (
+          "v4.4.1回归（9字段全必填%s 自检实况打勾%s 假快轨拦%s 真快轨过%s 🔴无原话拦%s 已定缺复盘%s）"
+          "R-5三层（层1🟢无原话拦%s 层3无state拦%s/err拦%s/S4拦%s·提示S6%s 已定免state%s）"
+          "M7轻量（仪表%s 雷达%s 时间线%s 对比条%s 双主题%s S3强制全量%s 编号指代拦%s）"
+          "M12slug（对象+动作%s 无归位退截断%s）"
+          "批次1（div-in-svg清零%s W05拍板引号%s G3黑话%s HTML严解析%s）" % (
               "✓" if ok else "✗", "✓" if tt_gate else "✗", "✓" if sk_ok else "✗", "✓" if sk_bad else "✗",
               "✓" if gy_bad else "✗", "✓" if straw_caught else "✗", "✓" if ctrl_caught else "✗", "✓" if dec_caught else "✗",
               pts7, "✓" if gauge_ok else "✗", "✓" if (btag_ok and btag5) else "✗",
               "✓" if theme_ok else "✗", "✓" if legacy_ok else "✗", "✓" if compact_ok else "✗", "✓" if save_ok else "✗",
               "✓" if nine_gate else "✗", "✓" if audit_honest else "✗", "✓" if fake_fast_caught else "✗",
-              "✓" if legit_fast_ok else "✗", "✓" if rev_caught else "✗", "✓" if d6_caught else "✗"))
+              "✓" if legit_fast_ok else "✗", "✓" if rev_caught else "✗", "✓" if d6_caught else "✗",
+              "✓" if l1_caught else "✗", "✓" if l3_nostate else "✗", "✓" if l3_err else "✗",
+              "✓" if l3_phase else "✗", "✓" if l3_msg else "✗", "✓" if decided_nostate_ok else "✗",
+              "✓" if m7_gauge else "✗", "✓" if m7_radar else "✗", "✓" if m7_shift else "✗",
+              "✓" if m7_bars else "✗", "✓" if m7_theme else "✗", "✓" if m7_force_full else "✗",
+              "✓" if m7_num_caught else "✗", "✓" if m12_ok else "✗", "✓" if m12_fb else "✗",
+              "✓" if w01_ok else "✗", "✓" if w05_ok else "✗", "✓" if g3_ok else "✗", "✓" if w06_ok else "✗"))
     return all_ok
 
 
@@ -890,7 +1160,9 @@ def main():
     ap.add_argument("input", nargs="?", help="要点文件（key: value 或 JSON），或 - 读 stdin")
     ap.add_argument("--template", action="store_true", help="打印文本模板（9字段+探讨轨迹+归位+渲染可选键）")
     ap.add_argument("--out", dest="out_dir", help="落盘目录（默认 ./决策记录；可用 PM_STRATEGIST_DR_DIR 覆盖）")
-    ap.add_argument("--slug", help="文件名 slug（默认取问题字段清洗）")
+    ap.add_argument("--slug", help="文件名 slug（默认=对象+动作，取归位字段原语对：DR-YYYYMMDD-<对象≤10字>-<动作≤6字>，"
+                                    "文件名≤30字；归位无原语对退问题字段截断）")
+    ap.add_argument("--state", default=None, help="session_state.json 路径（R-5 层3 状态断言；默认 PM_STRATEGIST_STATE 环境变量 > <skill根>/config/session_state.json）")
     ap.add_argument("--stdout", action="store_true", help="HTML 打到 stdout，不落盘")
     ap.add_argument("--self", action="store_true", help="内置样例自检")
     a = ap.parse_args()
@@ -908,7 +1180,8 @@ def main():
         print("读入失败: %s" % e)
         return 2
     pts = parse_points(text)
-    missing, problems = validate(pts)
+    state, state_err = _load_session_state(a.state)
+    missing, problems = validate(pts, state=state, state_err=state_err)
     if missing or problems:
         print(render_text(pts))
         msg = ("必填缺：%s" % "/".join(missing)) if missing else ""
@@ -923,13 +1196,19 @@ def main():
     if a.stdout:
         sys.stdout.write(html)
         sys.stderr.write("PASS — HTML 已输出（未落盘，--stdout 模式）\n")
+        present, missk = render_key_status(pts)
+        sys.stderr.write("渲染键齐备度（台面四区→DR 搬运）：%d/%d 齐全（%s）%s\n"
+                         % (len(present), len(RENDER_KEYS), "/".join(present) or "—",
+                            ("；缺：%s" % "、".join(missk)) if missk else ""))
+        sys.stderr.write("覆盖边界：本次校验=DR 结构（9字段全必填+探讨轨迹/归位格式+R-5 收敛闸三层+质量下限）；"
+                         "未覆盖=发布台面文本（走 check_output.py --publish 三步硬序列）。\n")
         return 0
     if a.out_dir:
         out_dir, src = a.out_dir, "--out 参数"
     else:
         out_dir, src = resolve_out_dir()
     os.makedirs(out_dir, exist_ok=True)
-    slug = a.slug or re.sub(r"[^\w\u4e00-\u9fff]+", "", pts.get("问题", ""))[:24] or "dr"
+    slug = a.slug or _default_slug(pts)  # M12 脚本默认值层：对象+动作（无归位原语对退问题字段截断）
     path = os.path.join(out_dir, "DR-%s-%s.html" % (DR_DATE, slug))
     n = 2
     base = path[:-5]
@@ -941,6 +1220,12 @@ def main():
     theme = "旧版回退模板" if s.get("dr_theme_legacy") else ("浅色" if s.get("dr_theme") == "light" else "暗黑横版")
     print("PASS — DR 渲染成功，已落盘：%s（目录来源：%s；主题：%s）" % (path, src, theme))
     print("档案含：9 字段/反方/风险六维/假设/探讨轨迹/归位；复盘日期到点对照 fm-04 复盘。")
+    present, missk = render_key_status(pts)
+    print("渲染键齐备度（台面四区→DR 搬运）：%d/%d 齐全（%s）%s"
+          % (len(present), len(RENDER_KEYS), "/".join(present) or "—",
+             ("；缺：%s" % "、".join(missk)) if missk else ""))
+    print("覆盖边界：本次校验=DR 结构（9字段全必填+探讨轨迹/归位格式+R-5 收敛闸三层+质量下限+M7-1 编号指代）；"
+          "未覆盖=发布台面文本（走 check_output.py --publish 三步硬序列）与档案内容真伪（引用数据不验真）。")
     return 0
 
 

@@ -43,16 +43,19 @@ else no "缺少 config/local_profile.md（应预置空模板）"; fi
 # 1b) config/pm_settings.json（DR 落盘偏好，运行时生成）不得随包分享
 if [ -f "$S/config/pm_settings.json" ]; then no "config/pm_settings.json 存在（本机 DR 偏好）——分享前删除"; else ok "无 config/pm_settings.json"; fi
 
+# 1c) config/session_state.json（v5.0 会话状态机，运行时生成）不得随包分享
+if [ -f "$S/config/session_state.json" ]; then no "config/session_state.json 存在（本机会话状态，含 info_ledger/gate_log）——分享前删除"; else ok "无 config/session_state.json"; fi
+
 # 2) 运行时产物 / 系统垃圾
 LEAK=$(find "$S" \( -name "DR-*.md" -o -name "*.log" -o -name "__pycache__" \
                    -o -name "*.pyc" -o -name ".snapshots" -o -name ".DS_Store" -o -name "决策记录" \) 2>/dev/null | grep -v "/\.git/")
 if [ -z "$LEAK" ]; then ok "无运行时产物（DR/日志/pycache/系统垃圾）"
 else no "存在运行时产物，删除或排除后再分享：" "$LEAK"; fi
 
-# 2b) scripts .py 计数（治理后应为 10：8 原有 + calc-pricing + profile-check）
+# 2b) scripts .py 计数（v5.0 后应为 12：10 原有 + info-gate + state-gate）
 PYC=$(find "$S/scripts" -maxdepth 1 -name "*.py" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$PYC" = "10" ]; then ok "scripts .py 计数=10"
-else no "scripts .py 计数=$PYC（治理后期望 10）"; fi
+if [ "$PYC" = "12" ]; then ok "scripts .py 计数=12"
+else no "scripts .py 计数=$PYC（治理后期望 12）"; fi
 
 # 3) .git 目录
 if [ -d "$S/.git" ]; then ok ".git 存在（本地 git 开发模式：Step0a 版本管理目录，不入分发包；导出/上传前经 grep -v '/.git/' 排除，绝不含 .git）"
@@ -70,6 +73,9 @@ scan "无开发过程/旧版残留（死规矩/旧口令/五类框架/版本演�
      "死规矩|旧口令|五类框架|与旧版|v1\.0\.|v2\.0\.|149/149|评估器|三方审查|任务书[0-9]|restore-my-skills|骨架废除|全项治疗"
 
 # 7) 本机绝对路径（放行 ~/.xxx 这类通用 home 简写，只抓真实绝对路径与个人目录名）
+#    注：此处"AI记忆库"为本机技能权威源目录名；本脚本自身（$SELF）已在上游 scan() 的
+#    --exclude="$SELF" 排除（见 L29、L102），故不会因本文件自引用而误报。
+#    判定口径参考对抗审查报告 §三：#A5/A6 假绿落点与排除逻辑——每条 scan 均带该排他，属设计内。
 scan "无本机绝对路径（/Users、/home、个人目录名）" "/Users/|/home/|AI记忆库"
 
 # 8) 版本号一致性：只比对 SKILL.md 的两处「版本声明位」（白名单，不扫全包）
@@ -100,6 +106,20 @@ else
     if [ -z "$HIT" ]; then ok "无个人敏感词（词表：${BL}）"
     else no "命中个人敏感词，分享前必须清除：" "$HIT"; fi
   fi
+fi
+
+# 10) R-1 发布前机器校验整合：包内测试全量回归（存在 tests/ 才执行；有红项=不得发布）
+if [ -f "$S/tests/run_tests.sh" ]; then
+  LOG=$(mktemp)
+  if bash "$S/tests/run_tests.sh" >"$LOG" 2>&1; then ok "run_tests.sh 全量回归 ALL GREEN（R-1：发布前物理门槛）"
+  else no "run_tests.sh 有红项——发布前必须全绿（R-1 整合）" "$(tail -5 "$LOG")"; fi
+  if [ -f "$S/tests/test-scripts.sh" ]; then
+    if bash "$S/tests/test-scripts.sh" >"$LOG" 2>&1; then ok "test-scripts.sh 全量回归 ALL GREEN"
+    else no "test-scripts.sh 有红项——发布前必须全绿（R-1 整合）" "$(tail -5 "$LOG")"; fi
+  fi
+  rm -f "$LOG"
+else
+  ok "无 tests/run_tests.sh（非本类技能，跳过回归门）"
 fi
 
 echo "=== 结果：PASS $PASS ｜ SKIP $SKIP ｜ FAIL $FAIL ==="

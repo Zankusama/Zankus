@@ -10,6 +10,9 @@ __pycache__/
 # config/pm_settings.json = DR 落盘偏好（运行时生成，v4.3.0 起默认存此处），不入库
 config/pm_settings.json
 
+# config/session_state.json = v5.0 会话状态机（运行时生成，含 info_ledger/gate_log），不入库
+config/session_state.json
+
 # 注意：config/local_profile.md 是“身份层唯一文件 + 预置空模板”，模板态随包分发；
 # 填写态含个人数据——本机建议 git update-index --skip-worktree config/local_profile.md 防误提交；
 # 若本机已填写，pre-publish-check 会 FAIL 提醒，切勿提交/分享填写版。

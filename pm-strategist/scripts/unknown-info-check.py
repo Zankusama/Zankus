@@ -86,8 +86,10 @@ def main():
         print("漏问  %s" % x)
     if missed:
         print("FAIL — 漏问 %d/%d（行为准则③：影响决策但用户没说的信息应引导补充，或显式假设⚠️）" % (len(missed), len(asked) + len(missed)))
+        print("覆盖边界：本次=引导清单关键词命中（v5.0 起结论性判定走 info-gate.py 三态台账，本脚本只做清单引导）。")
         return 1
     print("PASS — 该场景关键未知信息均已引导")
+    print("覆盖边界：本次=引导清单关键词命中（v5.0 起结论性判定走 info-gate.py 三态台账，本脚本只做清单引导）。")
     return 0
 
 

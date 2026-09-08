@@ -21,12 +21,21 @@
 
 四态出口：归位成功 / 澄清（原语缺失，附定向补问） / 跨域拆解（对象枚举外，如品牌级） / C类（非决策）
 
+v5.0 新增两种调用形态（RC-3 双判定源治理）：
+  --action/--object（AI 判定模式）：传入 AI 抽取的原语 → 跳过全部词法抽取，只做
+    合法性校验 + 矩阵查表 + 返回格子定义。真正落实「AI 判、脚本校验」。
+  --arbitrate（仲裁模式）：AI 判定 + 用户问题 → 跑词法候选，双源对照。
+    一致 → 直接归位；不一致 → divergence=true，输出结构化差异对照 + 各自判据，
+    由 AI 用人话呈现给用户选，禁止 AI 自行选定后只提一句。
+
 用法:
   python3 scripts/scene-router.py "新品怎么上市？"
   echo "问题" | python3 scripts/scene-router.py -
   python3 scripts/scene-router.py --json "品牌要不要重新定位"
+  python3 scripts/scene-router.py --action 判 --object 现有单品            # AI 判定模式
+  python3 scripts/scene-router.py --action 判 --object 现有单品 --arbitrate "这个品卖不动怎么办" --json
   python3 scripts/scene-router.py --self
-退出码: 0=产出定义路由（归位成功/跨域拆解/C类）; 1=需澄清（原语缺失，附建议问句）; 2=用法错误
+退出码: 0=产出定义路由（归位成功/跨域拆解/C类/仲裁完成含 divergence）; 1=需澄清（原语缺失或非法）; 2=用法错误
 """
 import sys, json, argparse, re
 
@@ -258,6 +267,64 @@ def route(q):
             "refs": refs or ["ref-06通用组件.md"]}
 
 
+ACTIONS = ["增", "删", "改", "择", "判"]
+
+
+def route_primitives(action, obj):
+    """AI 判定模式（RC-3）：AI 抽取的原语入参，脚本只做确定性校验 + 矩阵查表。"""
+    if action not in ACTIONS:
+        return {"exit": "澄清", "pairs": [], "composite": False,
+                "advice": "动作原语非法（%r）：合法值=增/删/改/择/判 → AI 抽取失败，出口=澄清，做定向补问" % action,
+                "refs": ["ref-06通用组件.md"]}
+    if obj == "品牌":
+        return {"exit": "跨域拆解", "pairs": [
+            {"动作": action, "对象": "品牌", "场景": "跨域拆解（层3）", "场景id": "X", "格子": "战略本体",
+             "理由": "AI 判定对象=品牌（枚举外）：拆解优先，产品域可执行部分逐个归位；品牌重新定位=🔴不可逆"}],
+            "composite": False,
+            "advice": "对象枚举外（品牌级）→ 拆解优先，不硬塞矩阵；显式声明「品牌战略本体超出场景弹药」",
+            "refs": ["ref-06通用组件.md"]}
+    if obj not in OBJECTS:
+        return {"exit": "澄清", "pairs": [], "composite": False,
+                "advice": "对象原语非法（%r）：合法值=%s → AI 抽取失败，出口=澄清，做定向补问" % (obj, "/".join(OBJECTS)),
+                "refs": ["ref-06通用组件.md"]}
+    sid, label = MATRIX[(action, obj)]
+    pair = {"动作": action, "对象": obj, "场景": SCENES[sid]["name"], "场景id": sid, "格子": label,
+            "理由": "AI 判定（原语入参模式）：跳过词法抽取，脚本仅校验合法性并查表"}
+    return {"exit": "归位成功", "pairs": [pair], "composite": False,
+            "advice": "单决策点归位 → 闸口 A 透出确认（动作×对象×场景×理由）",
+            "refs": SCENES[sid]["refs"].split("+")}
+
+
+def route_arbitrate(q, action, obj):
+    """仲裁模式（RC-3）：AI 判定 vs 词法候选 双源对照。
+
+    一致（词法候选含 AI 的 动作×对象 对）→ divergence=false，直接归位；
+    不一致 → divergence=true，输出结构化差异对照，须呈现给用户选，禁止 AI 自选。
+    输出结构对齐 session_state.routing（ai_primitive/script_candidates/divergence/confirmed_by_user）。"""
+    ai = route_primitives(action, obj)
+    lex = route(q)
+    cands = [{"action": p["动作"], "object": p["对象"], "scene": p["场景id"]} for p in lex.get("pairs", [])]
+    if ai["exit"] == "归位成功":
+        ai_prim = {"action": action, "object": obj, "scene": ai["pairs"][0]["场景id"]}
+        agree = lex["exit"] == "归位成功" and any(
+            c["action"] == action and c["object"] == obj for c in cands)
+    elif ai["exit"] == "跨域拆解":
+        ai_prim = {"action": action, "object": obj, "scene": "X"}
+        agree = lex["exit"] == "跨域拆解"
+    else:
+        return {"exit": "澄清", "pairs": [], "composite": False, "advice": ai["advice"],
+                "refs": ai["refs"]}
+    exit_name = "跨域拆解" if ai["exit"] == "跨域拆解" and agree else ("归位成功" if agree else "仲裁")
+    return {"exit": exit_name, "pairs": ai["pairs"], "composite": False,
+            "routing": {"ai_primitive": ai_prim, "script_candidates": cands,
+                        "divergence": not agree, "confirmed_by_user": None},
+            "advice": ("双源一致（AI 判定 ∈ 词法候选）→ 归位成功，仍须闸口 A 向用户透出确认"
+                       if agree else
+                       "双源不一致（divergence=true）→ 必须把两个候选对照呈现给用户选，禁止 AI 自行选定后只提一句；"
+                       "用户确认原话写入 session_state.routing.confirmed_by_user"),
+            "refs": ai["refs"], "lexical_exit": lex["exit"], "lexical_advice": lex["advice"]}
+
+
 def render_text(q, r):
     lines = []
     if r["exit"] == "归位成功":
@@ -269,6 +336,20 @@ def render_text(q, r):
             lines.append("场景=%s（复合决策，%d 个落点）" % ("/".join(sorted(set(p["场景id"] for p in r["pairs"]))), len(r["pairs"])))
         else:
             lines.append("场景=%s" % r["pairs"][0]["场景"])
+    elif r["exit"] == "仲裁":
+        rt = r["routing"]
+        p = r["pairs"][0]
+        lines.append("归位仲裁：AI 判定与词法候选不一致（divergence=true）")
+        lines.append("  AI 判定：  %s × %s → %s（判据：AI 语义抽取——决策直接改动的是什么）" % (
+            rt["ai_primitive"]["action"], rt["ai_primitive"]["object"], rt["ai_primitive"]["scene"]))
+        if rt["script_candidates"]:
+            for c in rt["script_candidates"]:
+                lines.append("  词法候选：%s × %s → %s（判据：词法规则命中；词法出口=%s）" % (
+                    c["action"], c["object"], c["scene"], r.get("lexical_exit", "—")))
+        else:
+            lines.append("  词法候选：无（词法出口=%s，无法佐证 AI 判定）" % r.get("lexical_exit", "—"))
+        lines.append("  格子=%s" % p["格子"])
+        lines.append("  → 两源不一致必须把对照呈现给用户选，禁止 AI 自行选定后只提一句；确认原话写入 confirmed_by_user")
     elif r["exit"] == "跨域拆解":
         lines.append("场景=跨域拆解 | 出口=跨域拆解（对象枚举外：品牌级）")
     elif r["exit"] == "澄清":
@@ -319,18 +400,82 @@ def self_test():
         for b in bad:
             print("  ❌ " + b)
         return False
-    print("self: golden G1-G5 + 四态反例 + 误命中负例 共%d例全中 PASS✓" % len(cases))
+    # v5.0 原语入参模式 + 仲裁模式（RC-3：冲突检出率 100%，AI 自选率 0%）
+    prim_cases = [
+        # (action, object, 期望出口, 期望场景id)
+        ("判", "现有单品", "归位成功", "S3"),
+        ("增", "新品", "归位成功", "S1"),
+        ("择", "价格体系", "归位成功", "S4"),
+        ("改", "品牌", "跨域拆解", "X"),
+        ("大概", "现有单品", "澄清", None),
+        ("判", "市场", "澄清", None),
+    ]
+    for act, obj, exp_exit, exp_sid in prim_cases:
+        r = route_primitives(act, obj)
+        if r["exit"] != exp_exit:
+            bad.append("原语模式 %s×%s → 出口=%s（期望%s）" % (act, obj, r["exit"], exp_exit)); continue
+        if exp_sid and r["pairs"] and r["pairs"][0]["场景id"] != exp_sid:
+            bad.append("原语模式 %s×%s → 场景=%s（期望%s）" % (act, obj, r["pairs"][0]["场景id"], exp_sid))
+    arb_cases = [
+        # (问题, action, object, 期望 divergence)
+        ("这个品卖不动了怎么办", "判", "现有单品", False),   # 双源一致
+        ("新品怎么上市？", "判", "现有单品", True),          # R2 实测事故：AI=S3 vs 词法=S5
+        ("要不要给 A 出小规格？", "判", "价格体系", True),   # 同场景不同动作
+        ("A 品出个礼盒装怎么样？", "择", "现有单品", True),  # 动作与对象双异
+        ("帮我看看有什么风险", "判", "渠道/上市", True),     # 词法 C类 无法佐证
+        ("品牌要不要重新定位", "判", "现有单品", True),      # AI 判 S3 vs 词法跨域
+    ]
+    for q, act, obj, exp_div in arb_cases:
+        r = route_arbitrate(q, act, obj)
+        div = r.get("routing", {}).get("divergence")
+        if div != exp_div:
+            bad.append("仲裁 %s×%s「%s」→ divergence=%s（期望%s；词法出口=%s）"
+                       % (act, obj, q, div, exp_div, r.get("lexical_exit")))
+        elif div is True and "禁止 AI 自行选定" not in r["advice"]:
+            bad.append("仲裁 %s×%s「%s」→ divergence 输出缺「禁止自选」指令" % (act, obj, q))
+    if bad:
+        print("self: FAIL✗ %d 项不符" % len(bad))
+        for b in bad:
+            print("  ❌ " + b)
+        return False
+    print("self: golden G1-G5 + 四态反例 + 原语模式 6 例 + 仲裁 6 例（含 5 组双源冲突）共%d例全中 PASS✓"
+          % (len(cases) + len(prim_cases) + len(arb_cases)))
     return True
 
 
 def main():
     ap = argparse.ArgumentParser(description="pm-strategist 决策原语路由器（教练模式：原语校验+25格矩阵+四态出口）")
-    ap.add_argument("question", nargs="?", help="用户问题文本，或 - 读 stdin")
+    ap.add_argument("question", nargs="?", help="用户问题文本，或 - 读 stdin（--action/--arbitrate 模式下为词法/仲裁输入）")
     ap.add_argument("--json", action="store_true", help="输出JSON")
-    ap.add_argument("--self", action="store_true", help="内置样例自检（golden G1-G5+四态反例）")
+    ap.add_argument("--action", default=None, help="AI 判定模式：AI 抽取的动作原语（增/删/改/择/判）")
+    ap.add_argument("--object", dest="obj_arg", default=None, help="AI 判定模式：AI 抽取的对象原语（5 对象或品牌）")
+    ap.add_argument("--arbitrate", action="store_true", help="仲裁模式：AI 判定 + 问题词法候选双源对照（须同时给 --action/--object 和问题）")
+    ap.add_argument("--self", action="store_true", help="内置样例自检（golden G1-G5+四态反例+原语/仲裁模式）")
     a = ap.parse_args()
     if a.self:
         return 0 if self_test() else 1
+    if a.action or a.obj_arg or a.arbitrate:
+        if not a.arbitrate:
+            if not (a.action and a.obj_arg):
+                ap.error("--action 与 --object 必须成对使用")
+            r = route_primitives(a.action, a.obj_arg)
+            q = a.question or ("%s × %s" % (a.action, a.obj_arg))
+        else:
+            if not (a.action and a.obj_arg):
+                ap.error("--arbitrate 需要 --action/--object（AI 判定）+ 问题文本（词法候选）")
+            if not a.question:
+                ap.error("--arbitrate 需要问题文本作为位置参数")
+            q = sys.stdin.read().strip() if a.question == "-" else a.question
+            r = route_arbitrate(q, a.action, a.obj_arg)
+        if a.json:
+            out = {"input": q, "出口": r["exit"], "复合决策": r["composite"],
+                   "pairs": r["pairs"], "建议": r["advice"], "主查": r["refs"]}
+            if "routing" in r:
+                out["routing"] = r["routing"]
+            print(json.dumps(out, ensure_ascii=False))
+        else:
+            print(render_text(q, r))
+        return 1 if r["exit"] == "澄清" else 0
     if not a.question:
         ap.print_help()
         return 2

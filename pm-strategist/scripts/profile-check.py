@@ -288,8 +288,10 @@ def main():
         print("FAIL — 闸口C 拦下 %d 项（exit 1：不得带此身份层进场景，须先走迁移/重验）：" % len(problems))
         for x in problems:
             print("  ❌ " + x)
+        print("覆盖边界：本次=身份层双闸门（字段集比对+schema 版本戳）与 90 天确认戳时效；未覆盖=固化值的业务真伪（回显确认走用户）。")
         return 1
     print("PASS — 前提库可载入（闸口C双闸门通过）")
+    print("覆盖边界：本次=身份层双闸门（字段集比对+schema 版本戳）与 90 天确认戳时效；未覆盖=固化值的业务真伪（回显确认走用户）。")
     return 0
 
 

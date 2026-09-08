@@ -77,8 +77,10 @@ def main():
             print("缺失    %s（可补「%s：未命中」显式声明）" % (dim, dim))
     if miss:
         print("FAIL — 缺 %d/%d 维：%s" % (len(miss), len(DIMS), "/".join(miss)))
+        print("覆盖边界：本次=输出文本的 6 风险维度关键词覆盖；未覆盖=风险判断的质量（命中≠判断对）。")
         return 1
     print("PASS %d/6" % len(DIMS))
+    print("覆盖边界：本次=输出文本的 6 风险维度关键词覆盖；未覆盖=风险判断的质量（命中≠判断对）。")
     return 0
 
 
