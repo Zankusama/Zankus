@@ -1,0 +1,8 @@
+# baton 本地工作态 —— 不进版本控制
+handoff/
+.baton-state/
+
+# 临时产物
+baton_reminder_*
+__pycache__/
+*.pyc
