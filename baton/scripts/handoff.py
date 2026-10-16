@@ -8,7 +8,7 @@
     （--log 记的是「agent 自己数出来的工具调用次数 / 读取文件数 / 输出量级」，
       不是 token 估计——数自己做过的事 ≠ 猜 token。见 SKILL.md §1.3。）
   * 纯 python3 标准库（argparse / os / re / sys / json / datetime / pathlib）。
-    ⛔ 不引入 pip 依赖。最低支持 Python 3.6（用 open(newline=)，不用
+    ⛔ 不引入 pip 依赖。最低支持 Python 3.7（from __future__ import annotations 需 3.7+；用 open(newline=)，不用
     write_text(newline=)，后者需要 3.10+）。实测环境以 TESTED.md 为唯一口径。
   * 无硬编码绝对路径。默认输出目录是**相对**目录 ./handoff/，
     可被环境变量 HANDOFF_DIR 或 --dir 覆盖。
@@ -359,8 +359,8 @@ def redact(text: str, *, pii: bool = False) -> tuple[str, dict[str, int]]:
 def scan_only(text: str, *, pii: bool = False) -> dict[str, int]:
     """只体检不替换。用于 --scan：落盘后自查。
 
-    TODO(v1): 这一层应当在 SKILL.md 的 L1 轻检里被复用，
-              但**不允许**因此新增一次模型往返。见 SKILL.md §6 反模式。
+    注意：本函数不替代 SKILL.md 的 L1 轻检（轻检归 AI 自检），
+    复用本层**不允许**新增模型往返。见 SKILL.md §6 反模式。
     """
     _redacted, counts = redact(text, pii=pii)
     return counts
@@ -449,7 +449,7 @@ def write_handoff(
       * 落盘成功后同步写 handoff/LATEST。
       * ⛔ 不做 markdown 结构校验、不做 schema 强校验——
         schema 是 SKILL.md 的契约，交给模型遵守；脚本越俎代庖会破坏可移植性。
-        （TODO(v1): 若要校验，只做"缺字段就 warn 到 stderr"，绝不 fail。）
+        （校验只做"缺字段 warn 到 stderr"档，绝不 fail——当前版本未实现该 warn。）
 
     ⚠️ 本函数是**次要路径**。首选路径是：agent 用自己的文件写入工具直写
        ./handoff/HANDOFF-<ts>.md，然后跑 --redact-file 就地脱敏。
@@ -467,7 +467,25 @@ def write_handoff(
 
     _write_text_lf(target, redacted)
     update_latest(out_dir, target)
+    # v4/T2：落盘即把新文档设为失鲜轴锚（tick 未读到 pinned 时另有 LATEST 兜底）
+    _pin_after_write(out_dir, target)
     return target, counts
+
+
+def set_pinned(out_dir: Path, target) -> Path:
+    """把 pinned_objective_path 写入 state.json（v4/T2）。只动这一个键。"""
+    state = load_state(out_dir)
+    state["pinned_objective_path"] = str(Path(target).expanduser().resolve())
+    return save_state(out_dir, state)
+
+
+def _pin_after_write(out_dir: Path, target) -> None:
+    """v4/T2：落盘即设失鲜轴锚。失败只 warn 不阻断（tick 另有 LATEST 兜底）。"""
+    try:
+        set_pinned(out_dir, target)
+    except Exception as exc:
+        print("handoff: 设失鲜轴锚失败（%s），tick 将回退 LATEST 兜底" % exc,
+              file=sys.stderr)
 
 
 def redact_file(path: Path, *, pii: bool = False) -> tuple[Path, dict[str, int]]:
@@ -626,12 +644,6 @@ def print_resume(path: Path, *, open_question: str = "") -> None:
     print("新会话接法：把上面这个路径发给我，或直接说 resume。")
     print("未答问题：%s" % (open_question or "（见文档第一行）"))
 
-
-def build_resume_command(path: str | os.PathLike[str]) -> str:
-    """生成给下一棒用的 resume 指路串（供脚本或 agent 直接引用）。"""
-    return "读这份交接文档继续：%s" % path
-
-
 # ---------------------------------------------------------------------------
 # 回归样本（第一优先级的可复跑证据）
 # ---------------------------------------------------------------------------
@@ -764,8 +776,23 @@ def cmd_redact_file(args: argparse.Namespace) -> int:
         print("handoff: 找不到文件 %s" % path, file=sys.stderr)
         return 2
     path, counts = redact_file(path, pii=args.pii)
+    # v4/T2：推荐落盘路径同样把本文档设为失鲜轴锚
+    _pin_after_write(path.parent, path)
     if not args.quiet:
         _print_redact_summary(counts)
+    return 0
+
+
+def cmd_pin(args: argparse.Namespace) -> int:
+    """--pin PATH：显式指定失鲜轴锚（写 state.json 的 pinned_objective_path）。"""
+    out_dir = resolve_dir(args.dir)
+    target = Path(args.pin)
+    if not target.exists():
+        print("handoff: 锚点文件不存在 %s" % target, file=sys.stderr)
+        return 2
+    set_pinned(out_dir, target)
+    if not args.quiet:
+        print("已设失鲜轴锚：%s" % str(target.expanduser().resolve()))
     return 0
 
 
@@ -900,6 +927,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="就地脱敏一个已落盘的交接文档（**推荐路径**）")
     mode.add_argument("--scan", action="store_true", help="只体检凭据、不落盘（退出码 0/1）")
     mode.add_argument("--latest", action="store_true", help="解析 resume 该读哪份文档")
+    mode.add_argument("--pin", metavar="PATH",
+                      help="指定失鲜轴锚（写 state.json 的 pinned_objective_path，供 tick 判 grounding）")
     mode.add_argument("--state-show", action="store_true", help="打印自检日志")
     mode.add_argument("--log", action="store_true", help="静默追加一条自检记录")
     mode.add_argument("--fields", action="store_true", help="打印交接文档固定字段顺序")
@@ -959,6 +988,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_scan(args)
     if args.latest:
         return cmd_latest(args)
+    if args.pin:
+        return cmd_pin(args)
     if args.state_show:
         return cmd_state_show(args)
     if args.log:

@@ -3,7 +3,10 @@
 """baton_reminder.py — baton 主动提醒 hook（运行时，可选增强件）。
 
 定位：
-  * 被宿主在合适事件（推荐 Stop）调用。读取客观数据与自报账，按信号层级双分支输出：
+  * 挂载事件=`UserPromptSubmit`（v4/D5 纠偏：v2.3.x 之前 docstring 写「推荐 Stop」与
+    settings 实际挂载不一致。提醒必须在**模型作答之前**送达才可能被贴进本回合回复；
+    Stop 时机在回复之后，贴不进去。Stop 侧只做 D3 对账守卫，不产提醒）。
+    读取客观数据与自报账，按信号层级双分支输出：
       - L2 级信号（l2_objective_hit / contradictions 含"应判 L2"）→ 催办一行：
         指示直接落盘交接文档（SKILL.md §1.1：L2 是主动义务，不问不请示）；
       - sub-L2 信号（packaging_advisory 临界区软信号 / 自报失真等数据质量问题）→ 询问一行：
@@ -13,6 +16,10 @@
     交接文档落盘（LATEST 更新）重置计数。退出通道：行末附「（说「别提醒」本
     会话不再提醒）」，agent 识别后调 `--mute` 写 per-session 关闭 flag。
     埋点只计 exposure / handover_conversion / ignore 三个数，⛔ 不记 prompt。
+  * **v4/D1 两段式送达**（照已被验证稳定的注入机制）：stdout 只进模型、对人类不可见，
+    所以输出=①「AI 专用指令行」（⛔不进回复，要求把信封原样照抄到回复末尾）
+    ＋②「🎒 三行信封本体」。构造权在本脚本，AI 只照抄；漏贴由 Stop 守卫
+    `baton_delivery_guard.py` 检出并留痕（v4/D3）。
   * **fail-open**：任何异常 / 超时 / 不可用都静默退出，绝不阻塞 agent。
   * 不需要也不接受 prompt 内容（无 --prompt 参数，P0-γ）；stdin 不读取。
   * 不做交接判定，只做"提示"；判定权仍在 agent。
@@ -21,6 +28,7 @@
   python3 baton_reminder.py [workspace]
   python3 baton_reminder.py --mute [workspace]        # 关闭本会话提醒
   python3 baton_reminder.py --unmute [workspace]      # 恢复提醒
+  python3 baton_reminder.py --settle [workspace]      # v4/D4：信封已真出现在回复里→结清
   python3 baton_reminder.py --selfcheck
   python3 baton_reminder.py --selfcheck --manifest <path>
 环境变量：
@@ -64,6 +72,28 @@ SECOND_COOLDOWN_MIN = 30           # 工程启发式（依据：证据报告；�
 # 退出通道提示（逐字，附在每条提醒行末尾；agent 识别「别提醒」后调 --mute 写关闭 flag）
 EXIT_HINT = "（说「别提醒」本会话不再提醒）"
 
+# ============================================================
+#  v4/D1 两段式送达：指令行（不进回复）+ 🎒 信封本体（必须照抄进回复）
+#  构造权在本脚本，AI 只照抄；漏贴由 Stop 守卫对账（baton_delivery_guard.py）。
+# ============================================================
+DELIVERY_INSTRUCTION = (
+    "【baton 送达指令·AI 专用·本行⛔不进回复】把下方 🎒 信封三行**逐字原样**追加到本轮"
+    "回复的末尾（置于产出签名与署名行之前），⛔不改写、不合并、不裸贴一行；"
+    "漏贴=Stop 守卫 baton_delivery_guard 台账留痕＋响亮告警，你必须在下一轮把信封"
+    "补贴进可见回复（self-heal），否则用户看不到提醒。")
+ENVELOPE_MARK = common.ENVELOPE_MARK    # Stop 守卫在 last_assistant_message 里找的特征串
+ENVELOPE_TOP = "━━━ %s ━━━" % ENVELOPE_MARK
+ENVELOPE_BOT = "━" * 18                 # 与 SKILL.md §1.6 定稿逐字对齐
+
+
+def build_delivery(text: str) -> str:
+    """两段式输出：指令行 + 三行信封（信封中行=提醒原稿 + 退出通道提示）。
+
+    v4/D6 单块互斥由此构造保证：全文只有本函数产出块、只有 cmd_runtime 一个调用点，
+    一次 hook 运行 = 至多一块；催办行与询问行在此之前已二选一，不并存。
+    """
+    return "\n".join([DELIVERY_INSTRUCTION, ENVELOPE_TOP, text + EXIT_HINT, ENVELOPE_BOT])
+
 # 频控状态文件（<ws>/.baton-state/<ws-hash>/<agent-id>/ 下；只计数，⛔ 不记 prompt）
 STATE_NAME = "reminder_state.json"
 
@@ -96,9 +126,12 @@ def run_tick(ws: Path, timeout: float) -> dict | None:
 
 
 def _fresh_state() -> dict:
+    # ⛔ 新增键必须登记在这里：_load_state 只回读本模板里的键，漏了=保存后被静默吞掉。
     return {"count": 0, "last_at": None, "last_at_epoch": None, "last_streak": None,
             "muted": False, "exposure": 0, "handover_conversion": 0, "ignore": 0,
-            "pending_exposure_epoch": None}
+            "pending_exposure_epoch": None,
+            # v4/D3 送达对账：delivered=信封真出现在回复里的笔数；reconciled=该曝光是否已对过账
+            "delivered": 0, "reconciled": False}
 
 
 def _state_path(ws: Path) -> Path:
@@ -153,7 +186,10 @@ def _settle_handover(ws: Path, st: dict) -> bool:
 
 def _is_l2(data: dict) -> bool:
     cs = [str(c) for c in (data.get("contradictions") or []) if c]
-    return bool(data.get("l2_objective_hit")) or any("L2" in c for c in cs)
+    # v4/R4 P2-15：结构化判定——tick 的 L2 矛盾文案精确模式是「应判 L2」
+    # （baton_tick.py L1090 同款串，两处互相锚定）。⛔ 不用任意 "L2" 子串匹配：
+    # 「L2 缓存」类误写会假触催办行、指示 AI 直接打包——假 L2 比漏 L2 贵。
+    return bool(data.get("l2_objective_hit")) or any("应判 L2" in c for c in cs)
 
 
 def build_reminder(data: dict) -> str | None:
@@ -228,13 +264,14 @@ def cmd_runtime(ws: Path, timeout: float) -> int:
         st["count"] = n + 1
         st["exposure"] = int(st.get("exposure") or 0) + 1
         st["pending_exposure_epoch"] = now
+        st["reconciled"] = None      # 新曝光 → 送达账重新开放（Stop 守卫须重新对账）
         st["last_at"] = common.iso_now()
         st["last_at_epoch"] = now
         if isinstance(streak, int):
             st["last_streak"] = streak
         _save_state(ws, st)
 
-        sys.stdout.write(text + EXIT_HINT + "\n")
+        sys.stdout.write(build_delivery(text) + "\n")
     except Exception:
         # 运行时绝不因自身故障影响宿主
         return 0
@@ -248,6 +285,33 @@ def cmd_set_mute(ws: Path, muted: bool) -> int:
         st = _load_state(ws)
         st["muted"] = bool(muted)
         _save_state(ws, st)
+    except Exception:
+        return 0
+    return 0
+
+
+def settle_into(st: dict) -> bool:
+    """把"信封已真出现在回复里"记进 state（幂等，返回是否新增一笔）。
+
+    单一事实源：CLI `--settle` 与 Stop 守卫 baton_delivery_guard 都调这里，
+    ⛔ 两处各写一份加法=又一个源↔副本漂移标本。
+    ⛔ 不清 pending_exposure_epoch：曝光归属（转化/被越过）仍由 _settle_handover
+    或下一次曝光的 ignore 判定（v4/D4 结清条件不含"贴了就算完"）。
+    """
+    pending = st.get("pending_exposure_epoch")
+    if not isinstance(pending, (int, float)) or st.get("reconciled") == pending:
+        return False
+    st["delivered"] = int(st.get("delivered") or 0) + 1
+    st["reconciled"] = pending
+    return True
+
+
+def cmd_settle(ws: Path) -> int:
+    """v4/D4：命令行入口——load → settle_into → save。"""
+    try:
+        st = _load_state(ws)
+        if settle_into(st):
+            _save_state(ws, st)
     except Exception:
         return 0
     return 0
@@ -349,6 +413,8 @@ def main(argv=None) -> int:
                         help="写 per-session 关闭 flag：本会话不再提醒（用户说「别提醒」时由 agent 调用）")
     parser.add_argument("--unmute", action="store_true",
                         help="撤销关闭 flag，恢复提醒")
+    parser.add_argument("--settle", action="store_true",
+                        help="v4/D4：信封已真出现在回复里→记 delivered 一笔（由送达对账守卫调用，幂等）")
     args = parser.parse_args(argv)
 
     if args.selfcheck:
@@ -357,6 +423,8 @@ def main(argv=None) -> int:
     ws = resolve_workspace(args.workspace)
     if args.mute or args.unmute:
         return cmd_set_mute(ws, bool(args.mute))
+    if args.settle:
+        return cmd_settle(ws)
 
     try:
         timeout = float(os.environ.get("BATON_TIMEOUT", DEFAULT_TIMEOUT))

@@ -68,6 +68,107 @@ DEFAULT_WIRING = {"event": EVENT, "timeout": True}
 
 
 # ---------------------------------------------------------------------------
+# v4/S3 发布校验：装/升级时比对实件 hash
+# ---------------------------------------------------------------------------
+# 纪律：锚点必须**来自外部**（本安装器认两个：--manifest / BATON_MANIFEST；
+#   BATON_EXPECTED_HASH 是 §7.1 selfcheck 的单人锚，只管 baton_reminder.py，安装器不读）。
+#   ⛔ 不在 hooks 目录里写一份"自己证明自己没被改"的清单——同目录自证等于没有验证
+#   （SKILL §7.1 selfcheck 同一原则）。本安装器只读清单、只打印待发签名的实算值。
+# 与 selfcheck 共用同一份清单：两个消费方的取键规则必须互通，否则发布方按 §2.6
+#   的扁平形态签名、安装器却判"清单缺件"拒装合法包（2026-10-14 实测假红，见 FLAT_ALIASES）。
+FLAT_ALIASES = {"reminder_sha256": "baton_reminder.py", "tick_sha256": "baton_tick.py"}
+VERIFY_BASENAMES = ("baton_reminder.py", "baton_delivery_guard.py",
+                    "source_sync_guard.py", "_baton_common.py")
+
+
+def collect_hashes() -> dict:
+    """实算发布面哈希（供发布方签名成外部 manifest）。缺件 → 该键值为 None。"""
+    root = common.skill_root()
+    out = {}
+    for name in VERIFY_BASENAMES:
+        p = root / "hooks" / name
+        out["hooks/%s" % name] = common.file_sha256(p) if p.is_file() else None
+    tick = common.tick_path()
+    out["scripts/baton_tick.py"] = common.file_sha256(tick) if tick and tick.is_file() else None
+    return out
+
+
+def _manifest_expected(manifest: dict) -> dict:
+    """宽松取期望值：支持 {"files": {"hooks/x.py": sha}} 与扁平 {"x.py": sha}。
+
+    扁平形态另认 §2.6 selfcheck 的两个别名键（reminder_sha256 / tick_sha256）——
+    同一份清单喂两个消费方时，⛔ 一方绿灯一方假红拒装。
+    """
+    files = manifest.get("files")
+    if isinstance(files, dict):
+        src = files
+    else:
+        src = {k: v for k, v in manifest.items() if isinstance(v, str)}
+    exp = {}
+    for k, v in src.items():
+        base = str(k).replace("\\", "/").split("/")[-1]
+        exp[base] = str(v)
+    for alias, real in FLAT_ALIASES.items():
+        if alias in src and real not in exp:
+            exp[real] = str(src[alias])
+    return exp
+
+
+def verify_install(manifest_path: Path | None) -> int:
+    """0=一致，或清单未覆盖的件（如实报"未验证"，不阻塞）；3=与外部清单不符（调用方须 fail-closed）。
+
+    作用域规则：清单**覆盖到**的件必须全对；未列出的件只登记不判——清单由外部发布方署名，
+    老包清单本就可能只列自家两件（§2.6 形态），缺键≠被篡改，据此拒装是假红。
+    """
+    actual = collect_hashes()
+    if manifest_path is None:
+        raw = os.environ.get("BATON_MANIFEST")
+        if raw:
+            manifest_path = Path(raw).expanduser()
+    if manifest_path is None:
+        print("install: 未提供外部发布清单 → 实件 hash **未验证**（不是"
+              "已验证通过）。发布面实算值：")
+        print(json.dumps(actual, ensure_ascii=False, indent=1))
+        return 0
+    if not manifest_path.is_file():
+        print("install: 指定了发布清单但文件不存在（%s）→ 与清单损坏同级，"
+              "拒绝在未验证状态下接线" % manifest_path, file=sys.stderr)
+        return 3
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print("install: 发布清单读不了（%s）→ 拒绝在"
+              "未验证状态下接线" % exc, file=sys.stderr)
+        return 3
+    if not isinstance(manifest, dict):
+        print("install: 发布清单非对象 → 拒绝接线", file=sys.stderr)
+        return 3
+    exp = _manifest_expected(manifest)
+    bad, uncovered = [], []
+    for key, sha in actual.items():
+        base = key.split("/")[-1]
+        want = exp.get(base)
+        if want is None:
+            uncovered.append(key)
+        elif sha != want:
+            bad.append((key, want[:12], (sha or "")[:12]))
+    if bad:
+        print("install: ❌ 与外部发布清单不一致（%d 件），拒绝写入 settings：" % len(bad),
+              file=sys.stderr)
+        for key, want, got in bad:
+            print("  - %s 期望=%s 实得=%s" % (key, want, got), file=sys.stderr)
+        return 3
+    checked = len(actual) - len(uncovered)
+    if checked == 0:
+        print("install: ⚠️ 清单未覆盖任何发布面文件 → 本次**未验证**"
+              "（不是校验通过）。实算值：%s" % json.dumps(actual, ensure_ascii=False))
+        return 0
+    tail = "，另有 %d 件清单未列出=未验证" % len(uncovered) if uncovered else ""
+    print("install: ✅ 发布清单校验通过（比对 %d 件%s）" % (checked, tail))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # 跨平台文件锁
 # ---------------------------------------------------------------------------
 
@@ -159,7 +260,24 @@ def resolve_settings(ws: Path, scope: str, explicit: str | None,
     return p
 
 
-def build_hook_entry(ws: Path, *, use_timeout: bool = True,
+# v4/R4 B3：hook 注册表——默认装 reminder + delivery_guard；--full 加 source_sync_guard
+HOOK_REGISTRY = [
+    {"key": "reminder", "script": "baton_reminder.py",
+     "event_from_wiring": True, "default": True},
+    {"key": "delivery_guard", "script": "baton_delivery_guard.py",
+     "event": "Stop", "default": True},
+    {"key": "source_sync_guard", "script": "source_sync_guard.py",
+     "event": "SessionStart", "default": False},
+]
+
+
+def hook_script_path(script: str) -> Path:
+    """注册表脚本名 → 包内 hooks/ 绝对路径。"""
+    return Path(__file__).resolve().parent / script
+
+
+def build_hook_entry(ws: Path, script: str = "baton_reminder.py", *,
+                     use_timeout: bool = True,
                      include_ws: bool = True) -> dict:
     """构造 hook 命令（仅位置参数 + 幂等标记，不含 --prompt，P0-γ）。
 
@@ -172,9 +290,11 @@ def build_hook_entry(ws: Path, *, use_timeout: bool = True,
     的 resolve_workspace 回退到 cwd —— 这是用户级挂载的正确形态。
     项目级（<ws>/.workbuddy/settings.json）作用域唯一，才烧 ws。
     """
+    script_path = (common.reminder_path() if script == "baton_reminder.py"
+                   else hook_script_path(script))
     parts = [
         sys.executable,
-        str(common.reminder_path()),
+        str(script_path),
     ]
     if include_ws:
         parts.append(str(ws))
@@ -248,20 +368,30 @@ def write_atomic(path: Path, text: str, backup: Path | None) -> None:
 
 def auto_install(ws: Path, settings: Path, *, event: str = EVENT,
                  use_timeout: bool = True, include_ws: bool = True,
-                 dry_run: bool, quiet: bool) -> int:
-    """自动接线；失败 fail-closed（不改原配置）。"""
-    entry = build_hook_entry(ws, use_timeout=use_timeout, include_ws=include_ws)
+                 dry_run: bool, quiet: bool, full: bool = False) -> int:
+    """自动接线（v4/R4：按注册表装 N 件）；失败 fail-closed（不改原配置）。"""
+    specs = [s for s in HOOK_REGISTRY if s["default"] or full]
+    entries = []
+    for spec in specs:
+        ev = spec.get("event") or event
+        to = use_timeout if spec.get("event_from_wiring") else True
+        entries.append({"key": spec["key"], "event": ev,
+                        "hook": build_hook_entry(ws, spec["script"],
+                                                 use_timeout=to,
+                                                 include_ws=include_ws)})
 
     if dry_run:
-        preview = {"settings": str(settings), "event": event,
-                   "include_ws": include_ws, "hook": entry}
+        preview = {"settings": str(settings), "include_ws": include_ws,
+                   "mode": "full" if full else "default", "hooks": entries}
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return 0
 
-    # 信任门（P0-ε）：tick / reminder / 解释器 / settings 父目录
+    # 信任门（P0-ε）：skill 根 / 各脚本 / 解释器 / settings
     tick = common.tick_path()
     check_paths = [common.skill_root(), common.reminder_path(),
                    sys.executable, settings]
+    for spec in specs:
+        check_paths.append(hook_script_path(spec["script"]))
     if tick:
         check_paths.append(tick)
     bad = common.untrusted(check_paths)
@@ -291,7 +421,10 @@ def auto_install(ws: Path, settings: Path, *, event: str = EVENT,
             except OSError:
                 backup = None
 
-        data, action = upsert_hook(data, entry, event)
+        actions = []
+        for item in entries:
+            data, action = upsert_hook(data, item["hook"], item["event"])
+            actions.append("%s@%s:%s" % (item["key"], item["event"], action))
         text = json.dumps(data, ensure_ascii=False, indent=2)
         try:
             write_atomic(settings, text, backup)
@@ -303,7 +436,7 @@ def auto_install(ws: Path, settings: Path, *, event: str = EVENT,
     common.set_marker(ws, "installed")
     common.ledger(ws, "hook-installed")
     if not quiet:
-        print("已挂载 baton 主动提醒（%s，事件 %s）。" % (action, event))
+        print("已挂载 baton 主动提醒（%d 件：%s）。" % (len(actions), ", ".join(actions)))
         if backup:
             print("原配置备份：%s" % backup)
     return 0
@@ -314,16 +447,16 @@ def auto_install(ws: Path, settings: Path, *, event: str = EVENT,
 # ---------------------------------------------------------------------------
 
 def print_manual(ws: Path, *, event: str = EVENT, use_timeout: bool = True,
-                 include_ws: bool = True) -> None:
-    """打印当前宿主无法自动写入时的手动接线片段。"""
-    entry = build_hook_entry(ws, use_timeout=use_timeout, include_ws=include_ws)
-    snippet = {
-        "hooks": {
-            event: [
-                {"hooks": [entry]}
-            ]
-        }
-    }
+                 include_ws: bool = True, full: bool = False) -> None:
+    """打印当前宿主无法自动写入时的手动接线片段（v4/R4：按注册表出 N 件）。"""
+    specs = [s for s in HOOK_REGISTRY if s["default"] or full]
+    snippet = {"hooks": {}}
+    for spec in specs:
+        ev = spec.get("event") or event
+        to = use_timeout if spec.get("event_from_wiring") else True
+        entry = build_hook_entry(ws, spec["script"], use_timeout=to,
+                                 include_ws=include_ws)
+        snippet["hooks"].setdefault(ev, []).append({"hooks": [entry]})
     print("\n# 手动挂载：把下面片段并入你的 settings.json（hooks 字段）")
     print(json.dumps(snippet, ensure_ascii=False, indent=2))
     print("# 说明：若你的宿主不支持 hook（如豆包办公端），可忽略——核心交接"
@@ -367,7 +500,28 @@ def main(argv=None) -> int:
     parser.add_argument("--settings", metavar="PATH", default=None,
                         help="显式指定 settings 文件（标准 hooks 格式）")
     parser.add_argument("--quiet", action="store_true", help="少输出")
+    parser.add_argument("--full", action="store_true",
+                        help="v4/R4：加装 source_sync_guard@SessionStart（仅多端部署者需要；"
+                             "默认只装 reminder@UserPromptSubmit + delivery_guard@Stop）")
+    parser.add_argument("--manifest", metavar="PATH", default=None,
+                        help="v4/S3：外部发布清单路径（含各实件 sha256）；不符则拒绝接线")
+    parser.add_argument("--print-hashes", action="store_true",
+                        help="v4/S3：打印发布面实算 hash（JSON），供发布方签名，不安装不写文件")
     args = parser.parse_args(argv)
+
+    if args.print_hashes:
+        print(json.dumps(collect_hashes(), ensure_ascii=False, indent=1))
+        return 0
+
+    # v4/S3：装/升级前置校验——外部锚点不符 → fail-closed，不写 settings。
+    # 放在 provider/scope 解析之前，任何路径（自动或转手动）都不带未验证件出门。
+    has_anchor = bool(args.manifest or os.environ.get("BATON_MANIFEST"))
+    if has_anchor:
+        vrc = verify_install(Path(args.manifest).expanduser() if args.manifest else None)
+        if vrc != 0:
+            return vrc
+    elif not args.quiet:
+        print("install: 无外部信任锚（manifest / BATON_MANIFEST）→ hash 未验证。")
 
     ws = Path(args.workspace).expanduser() if args.workspace else Path.cwd()
     ws = ws.resolve()
@@ -388,14 +542,14 @@ def main(argv=None) -> int:
             print("当前 provider（%s）不在自动接线名单；转手动挂载。"
                   % (provider or "unknown"))
         print_manual(ws, event=event, use_timeout=use_timeout,
-                     include_ws=include_ws)
+                     include_ws=include_ws, full=args.full)
         common.ledger(ws, "hook-not-mounted")
         return 0
 
     if args.dry_run:
         return auto_install(ws, settings, event=event, use_timeout=use_timeout,
                             include_ws=include_ws,
-                            dry_run=True, quiet=args.quiet)
+                            dry_run=True, quiet=args.quiet, full=args.full)
 
     if not ask_proceed(args):
         common.ledger(ws, "hook-declined")

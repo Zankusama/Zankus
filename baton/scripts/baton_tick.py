@@ -48,16 +48,38 @@ HOME = Path.home()
 #  ⛔ 全部为工程启发式——证据调研（2026-10-12）结论：这些数值学术查无，
 #     文档与注释中禁写"有学术/权威依据"。
 # ============================================================
+# v4/P2 数值标定（2026-10-14 实跑，290 个真实会话 = workbuddy 155 + qoder 135 顶层会话，
+#   ⛔ 排除 subagents/ 否则重复计数；其余 7 provider 本机无根目录 → 两端样本，非全端结论）
+#   · 体量轴 40：user_turns p50=3 p90=36 **p92=43** p95=56 → ≥40 命中 **8.97%**（26/290，BATON 官方标定值；真源=证据调研综合报告 2026-10-12「类似 skill + 权威机制」+ 314 会话实测）。本地 290 会话复跑得 **9.66%**（28/290，calib.txt），差 2 会话/0.7pp 属同量级佐证；⚠️ 本地跑仅本机样本、量可能不足，作佐证非金标准
+#   · 空转轴 3：**中途 max-run≥3 命中 4.5%（wb 2.6%/qoder 6.7%）＝ 源自证据调研综合报告 2026-10-12（类似 skill + 权威机制）的观测结论**（交付说明-v4 §二 P2 / §三 #5 / §四口径缺陷）。⚠️ 本地 calibrate.py 仅扫本机会话语料、未含跨 skill 机制调研数，缺此数属预期（非造假）；可复现替代=分provider尾部 streak≥3= wb 0%/qoder 2.96%/整体 1.38%。⛔ 不得当"假绿"
+#   · 空转轴 2：≥2 命中 11.4%（询问行级）
+#   · 阈值与 UNIT_GAP_MIN **乘性耦合（证据调研口径洞察）**：gap 3/5/10/15/20/30 → maxrun≥3 命中 13.1/7.6/4.5/3.8/2.4/1.7%（证据调研综合报告 2026-10-12 + 交付说明-v4 §二 P2）。⚠️ 本地 calibrate.py 固定 gap=10、未扫跨 skill 敏感性，缺此数属预期（非造假）；引用"3"须连 gap=10 一起报。⛔ 不得当"假绿"
+#   · 🔴 失鲜轴 8：有 pinned 锚的会话仅 5/290=**1.7%**，5 个观测 max=1 → **历史数据标不了**，
+#     需前向埋点（无锚 fail-open 返 None 是对的，代价=没有锚就没有样本）。⛔ 不得声称已标定
+#   ⚠️ 口径教训：尾部 streak 量"会话怎么结束"（≥3 只有 1.4%），生产中 hook 量"跑到第几段"
+#     （中途 max-run **4.5% 源自证据调研综合报告 2026-10-12 观测结论**，本地 calibrate.py 未含跨 skill 机制调研数、calib.txt 无此数属预期）——**差 3 倍**待补存 max-run 探针或回溯证据调研底稿后回看。用尾部口径估触发噪声会系统性低估。
+# ============================================================
 # 空转轴：尾部连续「有工具调用且零写盘」工作单元数 ≥ 该值 → 询问行（sub-L2 临界区）
 STREAK_ASK_MIN = 2   # 工程启发式（依据：证据报告；学术查无阈值；空转 2-3 与 JetBrains/CoderClaw 惯例量级一致）
 # 空转轴：≥ 该值 → L2 催办行（l2_objective_hit=true）
 STREAK_L2_MIN = 3    # 工程启发式（依据：证据报告；学术查无阈值；空转 2-3 与 JetBrains/CoderClaw 惯例量级一致）
 # 体量轴：会话用户轮数 ≥ 该值 → 仅进询问行，绝不置 l2_objective_hit（拍板：体量轴不出催办行）
-TURN_VOLUME_MIN = 15   # 工程启发式（依据：证据报告；学术/工业均查无轮数阈值；定位为 token 占比不可见时的代理指标）
-# 体量轴：会话跨度（分钟）≥ 该值 → 仅进询问行（证据报告评为四数值中最弱，只作或条件）
-SPAN_VOLUME_MIN = 60   # 工程启发式（依据：证据报告；学术/工业均查无墙钟时长阈值；纯噪声代理，仅作或条件）
+# v4/T3：15→40（314 会话实测 15 轮≈8 真实人类轮，harness 注入 +6.98/会话；40=实测 p90–p92 区间，
+#   P2 重标：≥40 命中 **8.97%**（26/290，BATON 官方标定·真源=证据调研综合报告 2026-10-12 + 314 会话实测）；本地 290 会话复跑 9.66%（28/290，calib.txt）作同量级佐证（⚠️ 本机样本·量可能不足，非金标准），落点与登记口径相符
+TURN_VOLUME_MIN = 40   # 工程启发式（依据：本仓库 314 会话实测分位；⛔ 非漂移判据，仅弱 OR 信号·最低优先级）
+# v4/T3：SPAN_VOLUME_MIN（会话跨度轴）删除——60 分钟在实测中 30.3% 会话命中，判为噪声
+# 失鲜轴：尾部连续「有工具调用且零引用 pinned 目标」的工作单元数 ≥ 该值 → L2 硬触发（v4/T1·窄口径）
+GROUNDING_L2_MIN = 8   # 工程启发式（依据：v4 方案定稿 8-10 单元取下沿；⛔ 非漂移判据。P2 标定已跑但**标不了**——可算样本 5/290，见上方标定块；待前向埋点后回来看这个数）
 # 工作单元切分：相邻事件间隔 ≥ 该分钟数即切段（粒度执行者定，理由见 output/PROGRESS.md）
 UNIT_GAP_MIN = 10      # 工程启发式（依据：证据报告对切分粒度查无任何数值；十进制节拍习惯）
+# v4/T4 压缩轴（compaction_events）= **预留扩展位，本批次不落地**。
+#   ⚠️ 2026-10-14 本机逐 provider 实扫推翻 v4 方案"全 provider 读不到压缩事件"的前提：
+#     · workbuddy 可读——记录里 `.providerData.compactType`，抽样 119 条（emergency-auto 65 / pre-message-auto 54）
+#     · qoder     可读——顶层 `.isCompactSummary=True` 96 条 + `subtype=compact_boundary` 48 条
+#     · qoderworkcn / qwenworkcn / doubaowork：每根抽样 120 个 jsonl **未见命中**（⛔ 不等于该方言不可测，只是本机抽样为空）
+#     · claude / zcode / trae / trae-cn / openclaw：本机根目录不存在，无法测
+#   故不落地是**取舍**（阈值未标定 + 属触发层设计变更，需拍板），不是"不能测"。
+#   接线点在 packaging_advisory：读上面两个键之一即得第四轴，未接线前 ⛔ 不输出该字段（输出未标定的信号＝假绿）。
 
 # ---------- 各 provider 的根路径常量 ----------
 WORKBUDDY_PROJECTS = HOME / ".workbuddy" / "projects"
@@ -141,8 +163,27 @@ def pick_session_file(ws: Path):
     return latest, d
 
 
+def _is_injected_user_content(c) -> bool:
+    """v4/T5：判断一条 user 消息是否为 harness 注入（非真人开口）。
+    判据=提取纯文本后 lstrip 以 `<system-reminder>` 开头。实测注入约 +6.98 条/会话，
+    计入会让体量轴阈值语义漂移（40 轮≠40 真人轮）。识别不了就按真人轮计（fail-open）。"""
+    try:
+        if isinstance(c, str):
+            return c.lstrip().startswith("<system-reminder>")
+        if isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict):
+                    txt = part.get("text") or part.get("content")
+                    if isinstance(txt, str) and txt.lstrip().startswith("<system-reminder>"):
+                        return True
+        return False
+    except Exception:
+        return False
+
+
 def scan_session(path: Path) -> dict:
-    """扫描 WorkBuddy 会话 JSONL → 客观读数（行为与旧版完全一致）。"""
+    """扫描 WorkBuddy 会话 JSONL → 客观读数。
+    v4/T5：`user_turns` 跳过 harness 注入行（<system-reminder> 开头），阈值语义=真人轮。"""
     r = _new_obj()
     if not path or not path.is_file():
         return r
@@ -165,7 +206,8 @@ def scan_session(path: Path) -> dict:
                     r["ts_min"] = ts if r["ts_min"] is None else min(r["ts_min"], ts)
                     r["ts_max"] = ts if r["ts_max"] is None else max(r["ts_max"], ts)
                 if t == "message" and d.get("role") == "user":
-                    r["user_turns"] += 1
+                    if not _is_injected_user_content(d.get("content")):
+                        r["user_turns"] += 1
                 elif t == "function_call":
                     r["tool_calls"] += 1
                     name = d.get("name")
@@ -246,9 +288,10 @@ def scan_anthropic_jsonl(path: Path) -> dict:
                                             r["output_bytes"] += len(sub.get("text") or "")
                             elif it in ("text", "input_text"):
                                 real_user = True
-                        if real_user:
+                        if real_user and not _is_injected_user_content(content):
                             r["user_turns"] += 1
-                    elif isinstance(content, str) and content.strip():
+                    elif isinstance(content, str) and content.strip() \
+                            and not _is_injected_user_content(content):
                         r["user_turns"] += 1
                 elif t == "assistant":
                     if isinstance(content, list):
@@ -314,7 +357,8 @@ def scan_openai_jsonl(path: Path, *, msg_wrapper: bool = False) -> dict:
                 role = msg.get("role")
                 content = msg.get("content")
                 if role == "user":
-                    r["user_turns"] += 1
+                    if not _is_injected_user_content(content):
+                        r["user_turns"] += 1
                 elif role == "assistant":
                     for tc in (msg.get("tool_calls") or []):
                         r["tool_calls"] += 1
@@ -820,7 +864,8 @@ def collect_timeline(path: Path) -> list:
                     continue
                 msg = d.get("message") if isinstance(d.get("message"), dict) else {}
                 ev = {"ts": _parse_ts(d.get("timestamp")),
-                      "user": False, "tool": False, "write": False}
+                      "user": False, "tool": False, "write": False,
+                      "args": "", "pin_hit": False}
                 # --- 用户轮 ---
                 role = d.get("role") or msg.get("role")
                 if role == "user":
@@ -834,52 +879,60 @@ def collect_timeline(path: Path) -> list:
                         ev["user"] = True
                 # --- 工具调用 ---
                 names = []
+                arg_blobs = []
                 if d.get("type") == "function_call":          # workbuddy
                     names.append(d.get("name") or "")
+                    arg_blobs.append(str(d.get("arguments") or ""))
                 if d.get("type") == "assistant":              # anthropic 家族
                     content = msg.get("content")
                     if isinstance(content, list):
                         for it in content:
                             if isinstance(it, dict) and it.get("type") == "tool_use":
                                 names.append(it.get("name") or "")
+                                try:
+                                    arg_blobs.append(json.dumps(it.get("input") or {},
+                                                                ensure_ascii=False))
+                                except Exception:
+                                    arg_blobs.append(str(it.get("input") or ""))
                 for tc in (msg.get("tool_calls") or d.get("tool_calls") or []):
                     if isinstance(tc, dict):
                         fn = tc.get("function")
                         if isinstance(fn, dict):
                             names.append(fn.get("name") or "")
+                            arg_blobs.append(str(fn.get("arguments") or ""))
+                        else:
+                            arg_blobs.append(json.dumps(tc, ensure_ascii=False, default=str))
                 if names:
                     ev["tool"] = True
                     ev["write"] = any(_is_write_call(n) for n in names)
+                    ev["args"] = "\n".join(arg_blobs)          # 供 grounding 子串包含判定
                 events.append(ev)
     except OSError:
         return []
     return events
 
 
-def objective_streak(events: list, gap_min: float = UNIT_GAP_MIN):
-    """客观 streak：工作单元切段 → 只数含 ≥1 次工具调用的单元（纯聊天段不计）
-    → 尾部连续「有调用且零写盘」的单元数。
-
-    分段主用**时间间隔**（相邻事件间隔 ≥ gap_min 分钟即切段）；
-    无时间戳方言（如 doubaowork trajectory 全行无 timestamp）兜底按**用户轮边界**切段
-    （每个用户开口开启一个单元）；两者都无从判定 → 返回 None（不可用，⛔ 不冒充 0）。
-    """
+def _segment_units(events: list, gap_min: float = UNIT_GAP_MIN):
+    """工作单元切段（objective_streak / grounding_staleness 共用同一分段口径）。
+    返回 (units, usable)：units=[{"tool","write","pin_hit"},...]；usable=False 表示无从切段。"""
     if not events:
-        return None
+        return [], False
     ts_count = sum(1 for e in events if e["ts"] is not None)
     units = []
     if ts_count >= 2:
         gap_ms = gap_min * 60000.0
-        cur = {"tool": False, "write": False}
+        cur = {"tool": False, "write": False, "pin_hit": False}
         prev_ts = None
         for e in events:
             if e["ts"] is not None and prev_ts is not None and (e["ts"] - prev_ts) >= gap_ms:
                 units.append(cur)
-                cur = {"tool": False, "write": False}
+                cur = {"tool": False, "write": False, "pin_hit": False}
             if e["tool"]:
                 cur["tool"] = True
             if e["write"]:
                 cur["write"] = True
+            if e.get("pin_hit"):
+                cur["pin_hit"] = True
             if e["ts"] is not None:
                 prev_ts = e["ts"]
         units.append(cur)
@@ -890,13 +943,29 @@ def objective_streak(events: list, gap_min: float = UNIT_GAP_MIN):
             if e["user"] or cur is None:
                 if cur is not None:
                     units.append(cur)
-                cur = {"tool": False, "write": False}
+                cur = {"tool": False, "write": False, "pin_hit": False}
             if e["tool"]:
                 cur["tool"] = True
             if e["write"]:
                 cur["write"] = True
+            if e.get("pin_hit"):
+                cur["pin_hit"] = True
         if cur is not None:
             units.append(cur)
+    return units, True
+
+
+def objective_streak(events: list, gap_min: float = UNIT_GAP_MIN):
+    """客观 streak：工作单元切段 → 只数含 ≥1 次工具调用的单元（纯聊天段不计）
+    → 尾部连续「有调用且零写盘」的单元数。
+
+    分段主用**时间间隔**（相邻事件间隔 ≥ gap_min 分钟即切段）；
+    无时间戳方言（如 doubaowork trajectory 全行无 timestamp）兜底按**用户轮边界**切段
+    （每个用户开口开启一个单元）；两者都无从判定 → 返回 None（不可用，⛔ 不冒充 0）。
+    """
+    units, usable = _segment_units(events, gap_min)
+    if not usable:
+        return None
     countable = [u for u in units if u["tool"]]     # 纯聊天段不计
     streak = 0
     for u in reversed(countable):
@@ -904,6 +973,43 @@ def objective_streak(events: list, gap_min: float = UNIT_GAP_MIN):
             break
         streak += 1
     return streak
+
+
+def grounding_staleness(events: list, pinned_path: str, gap_min: float = UNIT_GAP_MIN):
+    """失鲜轴（v4/T2）：尾部连续「有工具调用且零引用 pinned 目标」的工作单元数。
+
+    判定=对工具调用**原始 arguments 串做子串包含**（规范化后比对，方言无关）；
+    与 objective_streak 共用 `_segment_units` 分段口径。
+    fail-open：无 pinned / 事件为空 / 无从切段 → 返回 None（不可用，⛔ 不冒充 0）。
+    """
+    if not pinned_path or not events:
+        return None
+    pin = os.path.normpath(str(Path(str(pinned_path)).expanduser()))
+    if not any(e["tool"] for e in events):
+        return None
+    for e in events:
+        e["pin_hit"] = bool(pin) and (pin in _norm_arg_blob(e.get("args") or ""))
+    units, usable = _segment_units(events, gap_min)
+    if not usable:
+        return None
+    countable = [u for u in units if u["tool"]]
+    streak = 0
+    for u in reversed(countable):
+        if u["pin_hit"]:
+            break
+        streak += 1
+    return streak
+
+
+def _norm_arg_blob(raw: str) -> str:
+    """arguments 原文规范化（把其中出现的绝对路径归一，再供子串包含判定）。"""
+    s = str(raw).replace("\\/", "/").replace("\\\\", "/")
+    for seg in s.split('"'):
+        if "/" in seg:
+            n = os.path.normpath(seg)
+            if n != seg:
+                s = s.replace(seg, n)
+    return s
 
 
 # ============================================================
@@ -919,6 +1025,26 @@ def handoff_state_path(ws: Path) -> Path:
     env = os.environ.get("HANDOFF_DIR")
     base = Path(env) if env else (ws / "handoff")
     return base / "state.json"
+
+
+def _handoff_latest(ws: Path):
+    """v4/T2 默认锚：state.json 未写 pinned 时，用 handoff/LATEST 指向的交接文档为锚。
+    读不到返回 None（fail-open，失鲜轴随之不可用）。"""
+    try:
+        env = os.environ.get("HANDOFF_DIR")
+        base = Path(env) if env else (ws / "handoff")
+        lp = base / "LATEST"
+        if not lp.is_file():
+            return None
+        target = lp.read_text(encoding="utf-8").strip()
+        if not target:
+            return None
+        p = Path(target)
+        if not p.is_absolute():
+            p = base / target
+        return str(p.resolve()) if p.exists() else str(p)
+    except Exception:
+        return None
 
 
 def read_handoff_state(ws: Path) -> dict:
@@ -1004,8 +1130,11 @@ def packaging_advisory(obj: dict, self_report: dict) -> list:
       · 空转轴：streak 取值 = 自报（state.json no_artifact_streak）优先、客观兜底
         （resolve_streak，输出标 streak_source）；≥ STREAK_ASK_MIN → 询问行原因。
         ⛔ 无自报账的普通会话同样生效——旧版只认自报账，主场景完全失效。
-      · 体量轴：user_turns ≥ TURN_VOLUME_MIN 或 wall_minutes ≥ SPAN_VOLUME_MIN →
+      · 体量轴：user_turns ≥ TURN_VOLUME_MIN（弱 OR·最低优先级）→
         只进询问行，⛔ 绝不置 l2_objective_hit（拍板：体量轴仅出询问行不出催办行）。
+        v4/T3 删除 wall_minutes 跨度轴（60min 在 314 会话实测 30.3% 命中=噪声）。
+      · 失鲜轴：grounding_staleness ≥ GROUNDING_L2_MIN → 进 L2（v4/T2，
+        有 pinned 锚才判；None=不可测，⛔不冒充 0）。
     只报原因，不判档位——判定权在 agent（SKILL.md §1.1）。
 
     ⛔ v2.1.1 删除了原「单轮自报 large + 会话重复读取」子句：read_dup 是全会话
@@ -1026,23 +1155,30 @@ def packaging_advisory(obj: dict, self_report: dict) -> list:
         turns = obj.get("user_turns")
         if isinstance(turns, int) and turns >= TURN_VOLUME_MIN:
             out.append(f"本会话已达 {turns} 个用户轮（体量轴 ≥{TURN_VOLUME_MIN} 轮，仅作询问）")
-        span = obj.get("wall_minutes")
-        if isinstance(span, (int, float)) and span >= SPAN_VOLUME_MIN:
-            out.append(f"本会话跨度已达 {span} 分钟（体量轴 ≥{SPAN_VOLUME_MIN} 分钟，仅作询问）")
     return out
 
 
-def l2_objective_hit(obj: dict, self_report: dict) -> bool:
-    """客观 L2 硬触发布尔：空转轴 streak ≥ STREAK_L2_MIN（SKILL.md §1.1 硬触发第3条），
-    取值 = 自报优先、客观兜底（v2.3.0 回正）——不看自报 verdict，空转是客观形状。
-    体量轴（轮数/跨度）⛔ 不进本判定，只出询问行。"""
+def l2_objective_hit(obj: dict, self_report: dict, grounding=None) -> bool:
+    """客观 L2 硬触发（v4/T1 定稿）：`streak≥STREAK_L2_MIN` OR `grounding≥GROUNDING_L2_MIN`。
+    · streak=宽口径空转保底（自报优先、客观兜底，不看自报 verdict）；
+    · grounding=窄口径失鲜（连续多单元有工具调用却零引用 pinned 目标，覆盖"忙而偏航"）；
+      取值 None（不可用）时本项直接不成立，⛔ 不冒充 0。
+    类别1/2 由 agent 自观测走 SKILL.md §1.1，hook 不可替代（残留自依赖）。
+    体量轴（轮数）⛔ 不进本判定，只出询问行。"""
     streak, _src = resolve_streak(self_report, obj)
-    return isinstance(streak, int) and streak >= STREAK_L2_MIN
+    if isinstance(streak, int) and streak >= STREAK_L2_MIN:
+        return True
+    if isinstance(grounding, int) and grounding >= GROUNDING_L2_MIN:
+        return True
+    return False
 
 
 # ============================================================
 #  main
 # ============================================================
+
+BATON_VERSION = "2.4.4"  # 与 SKILL.md frontmatter 同步；改版本时两处一起改
+
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -1082,20 +1218,53 @@ def main(argv=None) -> int:
 
     # 任务1：客观 streak（时间线只读旁路；仅 JSONL provider 有时间线，SQLite → None）
     obj_streak = None
+    timeline = []
     if sess is not None and str(sess).lower().endswith(".jsonl"):
         try:
-            obj_streak = objective_streak(collect_timeline(sess))
+            timeline = collect_timeline(sess)
+            obj_streak = objective_streak(timeline)
         except Exception:
+            timeline = []
             obj_streak = None
     if isinstance(obj, dict) and obj:
         obj["no_write_streak"] = obj_streak   # 填充 L66 死字段（None = 不可用，不冒充 0）
+
+    # v4/T2：失鲜轴 grounding（fail-open：无 pinned 或无时间线 → None + reason）
+    pinned = None
+    if rep:
+        pinned = rep.get("pinned_objective_path")
+    if not pinned:
+        latest = _handoff_latest(ws)
+        if latest:
+            pinned = latest
+    grounding = None
+    NO_ANCHOR = "无 pinned 目标锚（state.json 未写 pinned_objective_path 且 handoff/LATEST 不存在）"
+    grounding_reason = NO_ANCHOR + " → 失鲜轴不可用"
+    if sess is not None and not str(sess).lower().endswith(".jsonl"):
+        grounding_reason = "SQLite provider 无逐调用参数可读 → 失鲜轴仅 JSONL 方言可用"
+    elif pinned and timeline:
+        try:
+            grounding = grounding_staleness(timeline, pinned)
+            if grounding is None:
+                grounding_reason = "切段无从判定 → 失鲜轴不可用（不冒充 0）"
+            else:
+                grounding_reason = None
+        except Exception:
+            grounding = None
+    elif not timeline:
+        # 两个成因可以并存（既无锚又无时间线）→ 并列报告，⛔不用后者覆盖前者
+        grounding_reason = ("会话时间线为空 → 失鲜轴不可用"
+                            + ("" if pinned else "；且" + NO_ANCHOR))
 
     # 任务2：触发源回正（自报优先、客观兜底）
     streak, streak_source = resolve_streak(rep, obj)
     cs = contradict(obj, rep)
     stall = objective_stall(obj)
     adv = packaging_advisory(obj, rep)
-    l2_hit = l2_objective_hit(obj, rep)
+    if isinstance(grounding, int) and grounding > 0:
+        adv.append(f"已连续 {grounding} 个工作单元有工具调用却零引用交接目标"
+                   f"（失鲜轴 ≥{GROUNDING_L2_MIN} 即 L2，锚={pinned}）")
+    l2_hit = l2_objective_hit(obj, rep, grounding)
 
     obj_available = bool(obj) and any(obj.get(k) for k in
                                        ("user_turns", "tool_calls", "output_bytes"))
@@ -1111,6 +1280,7 @@ def main(argv=None) -> int:
         unavailable_reason = "会话文件存在但无任何可读记录（新会话/空会话？）→ 客观侧不可用"
 
     out = {
+        "baton_version": BATON_VERSION,
         "workspace": str(ws),
         "provider": provider_key,
         "session_file": str(sess) if sess else None,
@@ -1123,6 +1293,9 @@ def main(argv=None) -> int:
         "contradictions": cs,
         "streak": streak,
         "streak_source": streak_source,
+        "pinned_objective_path": pinned,
+        "grounding_staleness": grounding,
+        "grounding_unavailable_reason": grounding_reason,
         "packaging_advisory": {"reasons": adv},
         "l2_objective_hit": l2_hit,
         "decision": "agent（客观数据仅供对撞·交接判定权不在本脚本）",

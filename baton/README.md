@@ -1,4 +1,4 @@
-# baton · 工作交接（v2.3）
+# baton · 工作交接（v2.4.4）
 
 ## ⭐ 你只需要记住两个词
 
@@ -70,13 +70,13 @@ python3 <skill-root>/scripts/handoff.py --help      # <skill-root> 替换为本�
 python3 <skill-root>/scripts/handoff.py --selftest
 
 # 4. 在项目约定文件里加一句（AGENTS.md / CLAUDE.md 均可）
-#    见 adapters/README.md §4
+#    见 adapters/README.md §5
 ```
 
 **完成。** 不需要装任何 hook，不需要配置任何东西。
 
 > ⚠️ `handoff.py` 是**便利设施，不是前置依赖**。装不了 python3 的环境，agent 按 `SKILL.md` §3 直接手写交接文档即可，功能不打折。
-> ⚠️ **Python 最低版本 3.6**（用 `open(..., newline="\n")`，不用 `write_text(newline=)`——后者需要 3.10+）。
+> ⚠️ **Python 最低版本 3.7**（`from __future__ import annotations` 需 3.7+；用 `open(..., newline="\n")`，不用 `write_text(newline=)`——后者需要 3.10+）。
 > 实测环境以 `references/TESTED.md` 为**唯一口径**（当前：Python 3.9.6 / macOS 26.4.1）。⛔ 无任何 pip 依赖。
 
 ---
@@ -94,9 +94,12 @@ baton/                    ← 这就是 skill 根
 │   ├── handoff.py               # 落盘 / 脱敏 / 自检记账（纯 stdlib，无硬编码路径）
 │   └── baton_tick.py            # 客观体量代理（多客户端自动路由；不可用时降级为自报）
 ├── hooks/                       # 可选：主动提醒（默认不挂，需显式安装）
-│   ├── baton_reminder.py        # 运行时（fail-open）
-│   ├── install_reminder.py      # 安装器（fail-closed，信任门）
-│   ├── uninstall_reminder.py    # 卸载器
+│   ├── baton_reminder.py        # 运行时（UserPromptSubmit·fail-open）
+│   ├── baton_delivery_guard.py  # 送达对账守卫（Stop·fail-open）
+│   ├── source_sync_guard.py     # 源同步守卫（SessionStart·fail-open·仅 --full 装）
+│   ├── install_reminder.py      # 安装器（fail-closed；默认装前两件，--full 加源同步）
+│   ├── uninstall_reminder.py    # 卸载器（按事件+脚本名清）
+│   ├── README.md                # hook 机制细节（维护者向）
 │   └── _baton_common.py         # 内部共享工具
 ├── references/
 │   ├── schema-完整模板.md       # 15 字段填写样例 + [无路径] 豁免规则
@@ -184,7 +187,7 @@ python3 hooks/uninstall_reminder.py
 
 - 状态在 `<workspace>/.baton-state/`（已在 `.gitignore`），不落 skill 包；命令不传输 prompt。
 - 写 settings 前有信任门（路径不可信则拒绝）；运行时 hook fail-open、安装器 fail-closed。
-- **提醒分两档**（双分支）：**L2 级信号**（连续 ≥3 个工作单元零落盘产物等硬触发）→ **催办行**，指示直接打包；**sub-L2 软信号**（连续 2 个工作单元零落盘、自报失真、体量轴 ≥15 轮 / ≥60 分钟）→ **询问行**，"是否打包"由你定。
+- **提醒分两档**（双分支）：**L2 级信号**（连续 ≥3 个工作单元零落盘产物等硬触发）→ **催办行**，指示直接打包；**sub-L2 软信号**（连续 2 个工作单元零落盘、自报失真、体量轴 ≥40 轮（60 分钟跨度轴已删：实测 30.3% 命中=噪声））→ **询问行**，"是否打包"由你定。
 - **触发源（v2.3.0 回正）**：`streak` 自报（`handoff/state.json`）优先，**没有自报账的普通会话改用客观值**（由会话事件时间线切工作单元算出，输出 `streak_source` 标注来源）——v2.1.x 曾绑死自报账导致主场景完全不提醒。
 - **频控 1+1+静默**：每会话最多 2 次；第 2 次需距上次 ≥30 分钟且信号增强，换版点明"已连续 N 个工作单元未落盘"；两次后静默，交接文档落盘（`LATEST` 更新）自动重置。
 - **退出通道**：提醒行末尾附「（说「别提醒」本会话不再提醒）」——说了之后执行 `python3 hooks/baton_reminder.py --mute <ws>` 关闭（`--unmute` 恢复）。

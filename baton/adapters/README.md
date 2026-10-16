@@ -19,7 +19,7 @@
    ⚠️ **skill 根 = 含 `SKILL.md` 的那一层**，即 `baton/`，**不是** `baton/v0.1/`、
    也不是任何子目录。`SKILL.md` 与 `LICENSE` **必须在 skill 根**。
 2. 确保 `<skill 根>/SKILL.md` 可被读取（装完用 `ls <skill 根>/SKILL.md` 自检一次）。
-3. 在**项目约定文件**里加一句提醒（见下 §4），让 agent 知道有这回事。
+3. 在**项目约定文件**里加一句提醒（见下 §5），让 agent 知道有这回事。
 
 **然后就不需要做任何事。** L0 静默默认，无异常不出声。
 
@@ -44,7 +44,7 @@
 | 6 | ZCode CLI | `zcode` | `~/.zcode/cli/db/db.sqlite` | SQLite（session / tool_usage 表） | `SELECT id FROM session WHERE directory = '<ws>'` |
 | 7 | AutoClaw-official | `autoclaw_official` | `~/Library/Application Support/AutoClaw-official/accounts/*/runtime/runtime.sqlite` | SQLite（neutral_session_entries 表） | work_workspaces.root_path（沙箱路径，非用户 workspace） |
 | 8 | GitHub Copilot Forge | `copilot` | `~/.copilot/session-store.db` | SQLite（sessions / turns / session_files 表） | `SELECT id FROM sessions WHERE cwd = '<ws>'` |
-| 9 | AutoClaw Legacy | `autoclaw_legacy` | `~/.openclaw-autoclaw/agents/*/sessions/*.jsonl`（356 个历史会话） | JSONL（OpenAI 风格） | 全扫 jsonl 首行 session 头找 cwd==ws |
+| 9 | AutoClaw Legacy | `autoclaw_legacy` | `~/.openclaw-autoclaw/agents/*/sessions/*.jsonl` | JSONL（OpenAI 风格） | 全扫 jsonl 首行 session 头找 cwd==ws |
 
 路由顺序（`baton_tick.py` 自动探测）：workbuddy → doubaowork → qoder家族 → zcode / autoclaw / copilot → autoclaw_legacy。
 
@@ -145,6 +145,6 @@ skill 本身已挂载、prompt 自检与用户显式触发正常工作，但 `ba
 - [ ] 没有依赖本 harness 不存在的 hook
 - [ ] `HANDOFF_DIR` 指向的位置在新 harness 里**可写且跨会话保留**
 - [ ] 交接文档里的路径在新 harness / 新目录下**仍然有效**（文档 `META` 里写死了路径基准）
-- [ ] `handoff.py` 在新环境可执行（只要有 `python3` ≥3.6 标准库即可；`--selftest` 可自证）
+- [ ] `handoff.py` 在新环境可执行（只要有 `python3` ≥3.7 标准库即可；`--selftest` 可自证）
 - [ ] `resume` 路径可用：`python3 scripts/handoff.py --latest` 能选出文档
 - [ ] 若新 harness 会清临时目录，提示用户把文档复制到持久位置

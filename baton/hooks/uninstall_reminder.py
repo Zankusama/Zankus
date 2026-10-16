@@ -3,7 +3,7 @@
 """uninstall_reminder.py — 卸载 baton 主动提醒 hook。
 
   * 从 settings 中移除含幂等标记的命令（先备份）；
-  * 清空该 workspace 的 .baton-state/（--all 则清所有 workspace）；
+  * 清空该 workspace 的 .baton-state/（--all 清 <ws>/.baton-state 整棵树）；
   * 幂等：未挂载 / 已清理也正常退出。
   * fail-closed：解析失败不动原配置，转提示手工处理。
 
@@ -34,6 +34,17 @@ from install_reminder import (  # noqa: E402
 )
 
 
+# v4/R4 B3：baton hook 脚本名全集——卸载按脚本名匹配，不依赖单一标记通道
+BATON_HOOK_SCRIPTS = ("baton_reminder.py", "baton_delivery_guard.py",
+                      "source_sync_guard.py")
+
+
+def _is_baton_command(command: str) -> bool:
+    """baton hook 条目判定：旧 HOOK_MARKER 标记 + 脚本名（双通道，防标记漂移漏删）。"""
+    cmd = command or ""
+    return common.HOOK_MARKER in cmd or any(n in cmd for n in BATON_HOOK_SCRIPTS)
+
+
 def remove_hook(data: dict, event: str = EVENT) -> tuple[dict, bool]:
     """移除含标记的命令；返回 (data, 是否有移除)。
 
@@ -52,7 +63,7 @@ def remove_hook(data: dict, event: str = EVENT) -> tuple[dict, bool]:
         inner = group.get("hooks")
         if isinstance(inner, list):
             kept = [h for h in inner
-                    if common.HOOK_MARKER not in (h.get("command") or "")]
+                    if not _is_baton_command(h.get("command") or "")]
             if len(kept) != len(inner):
                 changed = True
             group = dict(group)
@@ -70,16 +81,18 @@ def remove_hook(data: dict, event: str = EVENT) -> tuple[dict, bool]:
     return data, changed
 
 
-def uninstall_settings(settings: Path, quiet: bool, event: str = EVENT) -> int:
+def uninstall_settings(settings: Path, quiet: bool, event: str = EVENT) -> tuple[int, bool]:
+    if not settings.exists():
+        return 0, False
     settings.parent.mkdir(parents=True, exist_ok=True)
     with file_lock(settings):
         if not settings.exists():
-            return 0
+            return 0, False
         data = load_settings(settings)
         if data is None:
             print("uninstall: 现有 settings 无法解析，未改动；请手工删除含 %s 的命令。"
-                  % common.HOOK_MARKER, file=sys.stderr)
-            return 2
+                    % common.HOOK_MARKER, file=sys.stderr)
+            return 2, False
 
         backup = settings.with_name(
             settings.name + ".bak-baton-uninst-%d" % int(os.times().elapsed))
@@ -99,18 +112,21 @@ def uninstall_settings(settings: Path, quiet: bool, event: str = EVENT) -> int:
                     fh.write(json.dumps(data, ensure_ascii=False, indent=2))
             if not quiet:
                 print("已从 settings 移除 hook（备份：%s）。" % backup)
-    return 0
+    return 0, changed
 
 
-def wipe_state(ws: Path, quiet: bool) -> None:
+def wipe_state(ws: Path, quiet: bool) -> bool:
     root = common.state_root(ws)
-    if root.exists():
-        try:
-            shutil.rmtree(str(root))
-            if not quiet:
-                print("已清 .baton-state：%s" % root)
-        except OSError as exc:
-            print("uninstall: 清理状态失败：%s" % exc, file=sys.stderr)
+    if not root.exists():
+        return False
+    try:
+        shutil.rmtree(str(root))
+        if not quiet:
+            print("已清 .baton-state：%s" % root)
+        return True
+    except OSError as exc:
+        print("uninstall: 清理状态失败：%s" % exc, file=sys.stderr)
+        return False
 
 
 def main(argv=None) -> int:
@@ -123,7 +139,7 @@ def main(argv=None) -> int:
     parser.add_argument("--settings", metavar="PATH", default=None,
                         help="settings 文件路径（默认按标准位置推断）")
     parser.add_argument("--all", action="store_true",
-                        help="清所有 workspace 的状态（需配合 workspace 给状态根上层）")
+                        help="清 <workspace>/.baton-state 整棵树（含所有 agent 子目录）")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
@@ -142,23 +158,34 @@ def main(argv=None) -> int:
         resolve_settings(ws, scope, None, provider)
 
     rc = 0
+    changed = False
     if settings is not None:
-        rc = uninstall_settings(settings, args.quiet, event)
+        # v4/R4 B3：三个事件都清（reminder@wiring-event / guard@Stop / sync@SessionStart）
+        for ev in {EVENT, "Stop", "SessionStart"}:
+            rc2, ch2 = uninstall_settings(settings, args.quiet, ev)
+            rc = rc or rc2
+            changed = changed or ch2
+    elif not args.quiet:
+        print("uninstall: 未检测到 provider settings（可能是手动挂载的 hook），"
+              "请按 settings 内容手工删除含 %s 的命令。" % common.HOOK_MARKER,
+              file=sys.stderr)
 
     if args.all:
         top = ws / common.STATE_DIRNAME
         if top.exists():
             try:
                 shutil.rmtree(str(top))
+                changed = True
                 if not args.quiet:
                     print("已清全部状态：%s" % top)
             except OSError as exc:
                 print("uninstall: %s" % exc, file=sys.stderr)
                 rc = rc or 2
     else:
-        wipe_state(ws, args.quiet)
+        changed = wipe_state(ws, args.quiet) or changed
 
-    common.ledger(ws, "hook-uninstalled")
+    if changed:
+        common.ledger(ws, "hook-uninstalled")
     return rc
 
 

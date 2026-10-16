@@ -35,6 +35,10 @@ STATE_DIRNAME = ".baton-state"
 DIR_MODE = 0o700
 FILE_MODE = 0o600
 
+# 送达信封特征串（v4/D1 构造方 = baton_reminder，v4/D3 对账方 = baton_delivery_guard）。
+# 放这里是为了单一事实源：两边各写一份字面量 = 又一个"源↔副本漂移"标本。
+ENVELOPE_MARK = "🎒 baton 交接提醒"
+
 
 # ---------------------------------------------------------------------------
 # 路径
@@ -191,7 +195,7 @@ def _stat_trusted(p: Path) -> bool:
 def _dir_chain_trusted(p: Path, depth: int = 4) -> bool:
     """检查父目录链不可被 group/other 写入（防同级替换）。
 
-    例外：world-writable 但设置了粘滞位（S_ISVTX，如 /tmp）的目录，只有文件
+    例外：world-writable 但设置了粘滞位（S_ISVTX，如系统临时目录）的目录，只有文件
     属主/root 才能重命名或删除，同级替换面被粘滞位封住，予以放行。
     """
     if os.name != "posix":

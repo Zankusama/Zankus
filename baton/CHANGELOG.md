@@ -2,6 +2,68 @@
 
 本项目遵循语义化版本（Semantic Versioning）。
 
+## 2.4.4 — 2026-10-14
+
+skill-rehab 康复轮 R4（分发视角收口）——B1 §7 压缩 + B3 install 扩装 + P1-9/P2-15。
+
+- **B1 §7 压缩**：SKILL.md §7 由约 111 行压为 ~20 行骨架（组件一句话表/挂载策略/⛔未装则不生效硬警告/判据同源声明/指针），详情全量迁新建 **`hooks/README.md`**（维护者向：组件详表/触发源/送达对账/存活层/频控/退出通道/状态根隐私/安全约定/生产-消费契约/发布校验/迁移）。SKILL.md 666→**588 行**（回落 ≤650 红线内）；references 表补 hooks/README.md 入口。
+- **B3 install 扩装（v4/R4）**：新增 `HOOK_REGISTRY` 注册表——`install_reminder.py [ws]` **默认装 2 件**（reminder@UserPromptSubmit + delivery_guard@Stop），`--full` 加装 source_sync_guard@SessionStart（单端用户无多端副本可扫，装了天然空转，故不进默认）。dry-run/manual 片段同步按注册表出 N 件；信任门覆盖全部待装脚本。两个守卫补 `--hook-marker`（accept-ignore，供幂等标记识别）。**uninstall 对称扩删**：`_is_baton_command` 双通道（HOOK_MARKER + 脚本名），main 遍历 `{EVENT, Stop, SessionStart}` 三事件清理——修掉「手动挂了 guard 永远卸不掉留孤儿 Stop 钩子」的分发缺陷（Agent B 盲审独立发现 1 的落实）。实测：dry-run default=2 件 / full=3 件，守卫自测无回归（6/6、8/8）。
+- **P1-9**：README hooks 树同步（事件标注 + `--full` 说明 + hooks/README.md 入口）。
+- **P2-15**：`baton_reminder._is_l2` 改结构化精确匹配（tick L2 矛盾文案锚定「应判 L2」四字模式，两处互锚）——⛔ 消除任意 "L2" 子串匹配的假 L2 风险（误写「L2 缓存」会假触催办、指示 AI 直接打包；假 L2 比漏 L2 贵，Agent B 盲审修正后的正确风险形态）。
+- **评估器**：141/149（94.6%）维持；唯一未过项 l4_instruction_consistency 仍为 CLI 枚举假阳性（两极词 4 处=handoff.py `--verdict` 枚举值 CRITICAL）——挂账待 skill_eval 升级区分「CLI 枚举 vs 指令堆砌」后复跑（升级方案已备，待维护者批准走 guard 版本管理流程）。
+
+## 2.4.3 — 2026-10-14
+
+skill-rehab 康复轮（整体重构，非补丁）——三源诊断（评估器 124/149 B + 14 文件全量通读 + 实测验收 + Agent B 盲审对账）后按处方治疗。诊断四产物与履历在工作区 output/skill-rehab/baton-2026-10-14/。
+
+- **触发接口**：frontmatter description 补负向触发（NOT for）；新增 `tests/trigger-{obvious,reworded,unrelated}.md` 三场景样本（样本禁含本机路径/个人称呼/临时目录字面量，防破包内静态断言）。
+- **指令一致性**：修 SKILL.md 指错引用（large+重读升级条件实际在 §1.3）；README:73/adapters:22 §4→§5；references 化石编号清理（许可与出处 §8 编号去除、验收清单「原编号 §7」注记改述）；新增编号连续性说明（历史跳号非遗漏）。
+- **L2 判据归一（B4）**：§1.3 新增「L2 判据全集」表（7 条判定锚·唯一出处），§1.1 硬触发与 hook 双分支指回本表。
+- **可机器化验收声明节**：SKILL.md 新增脚本化声明节（7 条命令+通过判定；未跑不得声称已验证）。
+- **版本对齐**：frontmatter/标题/README/TESTED 全=2.4.3；README 体量轴口径 15→40、删 60min 轴（用户可见虚假承诺修复）；Python 底线 3.6→3.7 三处（`from __future__ import annotations` 证伪）。
+- **匿名化**：个人称呼 3 处清零（SKILL.md→待维护者拍板保留待办语义；source_sync_guard:14；CHANGELOG 2.4.1 条目）。
+- **TESTED 断言修复**：`/tmp` 四处清零（两个守卫 self-test 改 tempfile.mkdtemp、docstring/注释去字面量）；「记忆库」破口随 B2 修复；断言 A 范围说明如实扩大（CHANGELOG 历史条目除外——append-only 账本不改写）。
+- **分发修复（B2）**：source_sync_guard `_center()` 默认值改为 skill 包的父目录（作者机与原默认值等价·分发机自适应；`BATON_SKILL_CENTER` 保留覆盖）；docstring 两处本机路径同步清除。
+- **死代码/残留**：删 `build_resume_command`（零调用点）；TODO(v1)×2 清除；`set_pinned` 静默 except 两处合并为 `_pin_after_write`（失败 warn 到 stderr，不静默吞）。
+- **声称修复**：uninstall `--all` docstring 虚标改实；manifest 文件不存在独立分支（拒装 rc=3，与清单损坏对称）；uninstall 对不存在的 settings 不再 mkdir 写副作用；空移除不再写 `hook-uninstalled` 台账；未接线 provider 给出手工删除指引；install `--quiet` 不再吞「未验证」声明。
+- **结构收敛（P1-10）**：§1.3 compaction 段压缩为两行，含防古德哈特回归注记（核心目标=监控是否遵循目标、⛔非控制压缩次数、第四轴永远可选次级——2026-10-14 用户裁定）；P2 标定表去本机路径+单元格瘦身；护栏注（⛔不压：缺探针≠造假、尾部 streak≠触发频率）合并为表后一处完整保留。
+- **P2**：tick 输出加 `baton_version` 字段；SKILL.md `--input -`「挂起」过时恐吓改实际行为（tty 守卫 rc=2）；`_is_l2` 字符串匹配（假 L2 风险）转 2.4.4 结构化字段。
+- **评估器**：124→134/149（86.6%→89.9%·等级 B→A）；唯一未过项 l4_instruction_consistency 为假阳性——两极词 4 处均系 handoff.py `--verdict` 的 CLI 枚举值 CRITICAL，⛔ 不为变绿把正确内容改错，挂账待评估器区分「CLI 枚举 vs 指令堆砌」。
+- **⛔ 本轮未做（挂账 2.4.4）**：B1 §7 压缩（102→~15 行+新建 hooks/README.md）；B3 install 扩装（默认 2+`--full` 3）+ uninstall 对称扩删；P1-9 README hooks 树同步；P2-15 `_is_l2` 结构化字段。
+
+## 2.4.2 — 2026-10-14
+
+存活层第三件：发布校验（v4/S3）——安装器装/升级前校验实件哈希。
+
+- **`hooks/install_reminder.py`**：新增 `collect_hashes` / `_manifest_expected` / `verify_install`，在**写 settings 之前**比对五件实件 sha256 与**外部**发布清单（`--manifest` 或 env `BATON_MANIFEST`）。三态：覆盖件全对→绿灯继续；有不符/清单坏→**exit 3 拒装**（fail-closed）；无外部锚点或清单零覆盖→打印「未验证（不是已验证通过）」，⛔ 不冒充绿灯。清单兼容 `{"files": {"hooks/x.py": sha}}` 与扁平形态。
+- **审查抓到的两处自造故障（同日修）**：①**假红拒装**——安装器原把"清单未列出某件"当不一致拒装，而 §2.6 早已存在 `baton_reminder.py --selfcheck --manifest` 这个消费方、其扁平形态只列两键；同一份合法清单 selfcheck rc=0、安装器 rc=3。修=作用域规则（覆盖件必须全对，未覆盖只登记不判）+ `FLAT_ALIASES` 认 `reminder_sha256`/`tick_sha256`。②**注释宣称了代码没做的锚点**（声称读 `BATON_EXPECTED_HASH`，实际不读）→ 更正注释，两个消费方锚点各归各。⚠️ 两消费方退出码刻意不同（selfcheck 不符=1／安装器不符=3），缺键处理也刻意不同，已写进 TESTED §2.6b 防后来者"统一"掉。
+- **`--print-hashes`**：产出待发签名，供发布方把值写进包外清单。⚠️ 锚点必须在包外——清单与待验件同目录时副本一起被换就自证无效，这是 S1/S2 同族病，校验器不能再造一个。
+- 实测矩阵 **9/9**（TESTED §2.6b A–C、E–J——编号无 D，9 例；2026-10-14 康复轮纠偏）：含篡改件 rc=3 且 settings `before=after` 字节一致、扁平清单端到端不再拒装合法包、且 `~/.workbuddy/settings.json` 真配置 mtime 未变（安装器幂等，测试未改写用户配置）。
+- **G12 补账**：本次会话改动的 6 件（`install_reminder / source_sync_guard / baton_delivery_guard / _baton_common / baton_reminder / handoff`）快照已落 `记忆琥珀/2026-10-14-S3存活层快照/`，逐字节校验一致；`baton_tick.py` 快照此前在 `2026-10-14-grounding-reason/`。
+- **v4/T4 前提被实测推翻（事实纠偏，非功能变更）**：原文称"9 个 provider 都读不到压缩事件"。本机逐 provider 实扫（每根抽样 ≤120 jsonl）——workbuddy `.providerData.compactType` 命中 119 条（`emergency-auto` 65 / `pre-message-auto` 54）、qoder `isCompactSummary` 96 条 + `subtype=compact_boundary` 48 条；qoderworkcn/qwenworkcn/doubaowork 抽样 0 命中（仅"抽样为空"），claude/zcode/trae 等本机未装无法测。→ `SKILL.md §1.3` 与 `baton_tick.py` 常量区注释改为"**可测但未接**：阈值未标定 + 属设计变更，待拍板"；第四轴仍不落地（⛔ 不输出未标定信号）。
+- **v4/D6 单块互斥**：由构造保证而非新代码——`build_delivery` 是全文唯一的块产出点、只有 `cmd_runtime` 一个调用点，一次 hook 运行至多一块，催办/询问在其之前已二选一。以 docstring 登记该不变量（⛔ 不为此加防御性代码，那是给不可能的场景做处理）。
+- **v4/P2 数值标定（触发层，本批次最后一项可执行件，实跑 290 会话）**：体量轴 40 = 实测 p90–p92（p90=36 / p92=43，≥40 命中 9.66%（28/290，calib.txt 存档回执），与"取 p92"的登记相符）；空转轴 3 = ⚠️ 中途 max-run ≥3 命中 4.5%（wb 2.6%/qoder 6.7%）**不可复现假绿已降级**（存档 calibrate.py 不算 max-run、calib.txt 无此数）；可复现替代=分provider尾部 streak≥3 wb 0%/qoder 2.96%（整体 1.38%，calib.txt）；2 = 11.4% → "不误伤"由断言变成有数；`UNIT_GAP_MIN=10` 敏感性扫描（gap 3/5/10/15/20/30 → ≥3 命中 13.1/7.6/4.5/3.8/2.4/1.7% **⚠️ 不可复现假绿已降级**，存档 calibrate.py 固定 gap=10 不扫敏感性）证明**阈值与分段粒度乘性耦合（口径洞察，具体数待补存回看）**，引用"3"必须连 gap 一起报。🔴 **失鲜轴 8 标不了，且是结构性的**：有 pinned 锚的会话仅 5/290 = 1.7%，5 个观测 max=1 → 历史数据给不出任何 ≥8 样本；该数仍为启发式，须**前向埋点**后回看。落点：`SKILL.md §1.3` 标定表 + `baton_tick.py` 常量区标定块；⛔ **未改任何阈值数值**（证据不足以支撑改动）。样本范围仅 workbuddy+qoder 两端（其余 7 provider 本机无根目录），⛔ 不是全端结论。
+- **标定过程抓到的三处探针口径坑（记账防复发，非产品缺陷）**：①`scan_session` 的**函数级返回是扁平 objective**，CLI 顶层才包 `"objective"` 一层——按 CLI 结构读函数返回会得到 `user_turns=None` 的假空样本。②**不按 provider 选扫描器＝拿 workbuddy 解析器读 qoder 方言**，`user_turns/tool_calls/write_calls` 全 0（该文件实有 130 条 `type=user`），按 provider 分派后样本才可用。③方法论级：**尾部 streak 量"会话怎么结束"，中途 max-run 才量"hook 多常触发"**，二者差 3 倍（1.4% vs 4.5%），用前者估噪声会系统性低估。
+- **验收纠偏·二次更正（2026-10-14 用户指出数据真源＝BATON 历史调研，非本地跑）**：原"假绿"误判撤销后，曾把本地 `calib.txt` 9.66% 当金标准、把 8.97% 当转录误差——**这步也错**。用户指正：8.97%/4.5%/gap 真源是 **证据调研综合报告 2026-10-12（调研类似 skill + 权威机制）** 的观测结论（BATON 历史版本资料），本地 290 会话复跑仅有限佐证、且本机样本量可能不足。故：≥40 恢复以 **8.97%（26/290，BATON 官方标定）** 为准（本地 9.66% 差 2 会话/0.7pp 作同量级佐证）；4.5% 与 gap 敏感性确认为证据调研结论，本地 `calibrate.py` 仅扫本机会话语料、未含跨 skill 机制调研数，缺此数属预期（非造假）。⛔ 不得当"假绿"。落点同步 `SKILL.md §1.3` + `baton_tick.py` 常量区。
+- **送达层硬兜底升级（v4/D2·本批次）**：§1.6 信封必贴由"软义务+静默台账"升为 **construct 级硬规则（与产出签名同档）**——漏贴=送达失败、AI 须 self-heal 补贴；`baton_delivery_guard.py` miss 时向 stderr **响亮告警**（仍 fail-open、exit 恒 0、自测 6/6 无回归）。⛔ 诚实边界：Stop 钩子 stdout 只进模型、无法把信封注入可见回复，"你必看见"最终仍靠 AI 每轮按硬规则补贴——此为该约束下可达的硬兜底。
+
+## 2.4.1 — 2026-10-14
+
+存活层补件：源同步守卫 + 失鲜轴 fail-open 语义修正。
+
+- **`hooks/source_sync_guard.py`（v4/S2）**：扫各端 `hooks/` 里「中心派生但非软链」的实件，sha256 比对源；漂移走 D1 两段式（AI 指令行 + `🧬` 可见块）。只报不修，去重键=副本哈希，自测 8/8。**尚未挂 SessionStart（待拍板）**。
+- **`--orphans`**：抓 S2 主判据的结构盲区——实测 `route_unknown_unknown.py` 三端三份实体、哈希互异、中心无真源。
+- **`baton_tick.py`**：`grounding_unavailable_reason` 两成因并存时改为并列报告，不再后者覆盖前者；四组合经 monkeypatch 矩阵验证。
+
+## 2.4.0 — 2026-10-14
+
+v4 三层耦合方案 P0–P1 落地（触发层新轴 + 送达层闭环）。
+
+- **送达层（D1–D5）**：`baton_reminder.py` 输出改两段式（AI 专用指令行 + 🎒 三行信封，构造权在脚本）；`--settle` 记账 `delivered/reconciled`；挂载事件纠偏为 `UserPromptSubmit`。新增 `hooks/baton_delivery_guard.py`（Stop 对账，只登记不拦截，判 ok/miss/already/no_text/expired，自测 6/6），已挂 WorkBuddy `settings.json` Stop。
+- **单一事实源**：`ENVELOPE_MARK` 入 `_baton_common.py`，构造方与对账方共用；`settle_into()` 纯函数消除状态双写覆盖。
+- **触发层（T1–T5）**：新增失鲜轴 `grounding_staleness`（尾部连续「有工具调用却零引用 pinned 锚」的单元数，≥8 升 L2）；体量轴 15→40 且过滤 harness 注入轮；删除 60min 跨度轴（314 会话实测 30.3% 命中=噪声）；compaction 预留扩展位。
+- **SKILL.md**：§1.1 硬触发三轴、§1.3 临界区判据、§1.6 必贴硬规则（信封置于产出签名之前）、§7.1–7.4 组件与契约。
+
 ## 2.3.3 — 2026-10-12
 
 安装指令补多 skill 仓库形态。
